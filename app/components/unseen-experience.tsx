@@ -12,7 +12,9 @@ import type {
   AskCitation,
   AskDemoResponse,
   DemoSessionResponse,
+  Participant,
   ParticipantId,
+  PreloadedRecording,
   ProcessDemoResponse,
   SessionEvidence,
   UnseenSession,
@@ -61,12 +63,6 @@ interface TimelineItem {
   category: string;
 }
 
-const videoSources: Record<ParticipantId, string> = {
-  ace: "/demo/ace.mp4",
-  rin: "/demo/rin.mp4",
-  miko: "/demo/miko.mp4",
-};
-
 const initialMessages: ChatMessage[] = [
   {
     id: "welcome",
@@ -109,6 +105,48 @@ async function parseErrorResponse(response: Response, fallback: string) {
   return errorMessage(payload, fallback);
 }
 
+function PreloadedRecordingCard({
+  recording,
+  participant,
+}: {
+  recording: PreloadedRecording;
+  participant: Participant;
+}) {
+  function cuePreview(video: HTMLVideoElement) {
+    video.currentTime = Math.min(
+      Math.max(0, recording.preloadCueMs / 1000),
+      Math.max(0, video.duration - 0.3),
+    );
+  }
+
+  return (
+    <article className={`input-recording input-${participant.id}`}>
+      <div className="input-video-wrap">
+        <video
+          src={recording.assetUrl}
+          poster={`/demo/${participant.id}-poster.jpg`}
+          preload="metadata"
+          playsInline
+          muted
+          controls
+          onLoadedMetadata={(event) => cuePreview(event.currentTarget)}
+          aria-label={`${participant.displayName} preloaded synthetic source recording`}
+        />
+        <span className="input-ready"><i /> PRELOADED</span>
+        <span className="input-cue">CUE {formatTimestamp(recording.preloadCueMs)}</span>
+      </div>
+      <div className="input-meta">
+        <span className={`avatar avatar-${participant.accent}`}>{participant.avatarInitials}<i /></span>
+        <div>
+          <strong>{recording.label}</strong>
+          <span>{formatDuration(recording.durationMs)} · gameplay + opted-in voice</span>
+        </div>
+        <code>{recording.sha256.slice(0, 8)}</code>
+      </div>
+    </article>
+  );
+}
+
 export function UnseenExperience() {
   const [session, setSession] = useState<UnseenSession | null>(null);
   const [sessionError, setSessionError] = useState("");
@@ -126,6 +164,9 @@ export function UnseenExperience() {
   const [processMessage, setProcessMessage] = useState(
     "Loading the consented session fixture…",
   );
+  const [analysisStatus, setAnalysisStatus] = useState<
+    ProcessDemoResponse["mediaAnalysis"] | null
+  >(null);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [question, setQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
@@ -150,7 +191,7 @@ export function UnseenExperience() {
         setSession(payload.session);
         setActivePerspective(payload.session.focusParticipantId);
         setProcessMessage(
-          `${payload.session.sources.length} consented recordings are ready to reconstruct.`,
+          `${payload.session.media.recordings.length} preloaded recordings are ready to analyze.`,
         );
       } catch (error) {
         if (cancelled) return;
@@ -245,6 +286,23 @@ export function UnseenExperience() {
   );
   const activeParticipant = participantById.get(activePerspective);
   const activeClip = reasoning?.editPlan.clips[activeClipIndex];
+  const activeSource = session?.sources.find(
+    (source) => source.participantId === activePerspective,
+  );
+  const activeRecording = session?.media.recordings.find(
+    (recording) => recording.sourceId === activeSource?.id,
+  );
+  const activeTraceEvidenceId = activeEvidenceId || selectedEvidence[0]?.id;
+  const activeMediaTrace = session?.media.traces.find(
+    (trace) => trace.evidenceId === activeTraceEvidenceId,
+  );
+  const activeSourceObservation = activeMediaTrace?.sourceObservations.find(
+    (observation) => observation.sourceId === activeSource?.id,
+  ) ?? activeMediaTrace?.sourceObservations[0];
+  const observedTraces =
+    session?.media.traces.filter((trace) =>
+      analysisStatus?.observedEvidenceIds.includes(trace.evidenceId),
+    ) ?? [];
 
   function sourceTimeFor(sharedMs: number, participantId: ParticipantId) {
     if (!reasoning || !session) return sharedMs;
@@ -381,7 +439,8 @@ export function UnseenExperience() {
     setActiveMomentId("");
     setProcessState("running");
     setProgress(0);
-    setProcessMessage("Securing consent and media inputs…");
+    setAnalysisStatus(null);
+    setProcessMessage("Verifying the three preloaded media fingerprints…");
     setIsPlaying(false);
 
     try {
@@ -399,7 +458,8 @@ export function UnseenExperience() {
         }
         const payload = (await response.json()) as ProcessDemoResponse;
         setProgress(payload.overallProgress);
-        setProcessMessage(payload.statusLine);
+        setAnalysisStatus(payload.mediaAnalysis);
+        setProcessMessage(payload.mediaAnalysis.summary);
         if (payload.complete || payload.nextCursor === null) break;
         cursor = payload.nextCursor;
         await new Promise((resolve) => setTimeout(resolve, 380));
@@ -643,18 +703,56 @@ export function UnseenExperience() {
           >
             <span className="button-spark" aria-hidden="true">✦</span>
             {processState === "running"
-              ? "Reconstructing…"
+              ? "Analyzing media…"
               : processState === "complete"
-                ? "Run again"
-                : "Run reconstruction"}
+                ? "Analyze again"
+                : "Analyze demo session"}
           </button>
         </div>
       </header>
 
       <div className="fixture-banner" role="note">
-        <span>SYNTHETIC CHALLENGE DEMO</span>
-        Generated gameplay clips and deterministic fixture analysis—not a live game recording.
+        <span>SUBMISSION MODE · SYNTHETIC MEDIA</span>
+        The exact preloaded recordings below contain every visible event and opted-in voice line cited by the analysis.
       </div>
+
+      {session && (
+        <section className="media-intake" aria-labelledby="media-intake-title">
+          <div className="media-intake-heading">
+            <div>
+              <span className="eyebrow">01 · PRELOADED SQUAD INPUTS</span>
+              <h2 id="media-intake-title">Three recordings. One match. Ready now.</h2>
+            </div>
+            <p>
+              Inspect any source before analysis. Each cue opens on a moment that
+              UNSEEN later detects, aligns, ranks, and cites.
+            </p>
+          </div>
+          <div className="input-recordings">
+            {session.media.recordings.map((recording) => {
+              const source = session.sources.find(
+                (candidate) => candidate.id === recording.sourceId,
+              );
+              const participant = source
+                ? participantById.get(source.participantId)
+                : undefined;
+              return participant ? (
+                <PreloadedRecordingCard
+                  key={recording.sourceId}
+                  recording={recording}
+                  participant={participant}
+                />
+              ) : null;
+            })}
+          </div>
+          <div className="media-proof-strip">
+            <span><i /> 3 media fingerprints verified</span>
+            <span><i /> 6 alignment anchors embedded</span>
+            <span><i /> {session.media.traces.length} evidence observations mapped</span>
+            <span><i /> No upload or API key required</span>
+          </div>
+        </section>
+      )}
 
       <section className="reconstruction-status" aria-live="polite">
         <div className={`status-icon status-${processState}`} aria-hidden="true">
@@ -688,6 +786,44 @@ export function UnseenExperience() {
           <span style={{ width: `${processState === "idle" ? 0 : progress}%` }} />
         </div>
       </section>
+
+      {analysisStatus && session && (
+        <section className="analysis-console" aria-label="Media analysis trace" aria-live="polite">
+          <div className="analysis-console-head">
+            <span><i /> MEDIA ANALYSIS TRACE</span>
+            <strong>{analysisStatus.summary}</strong>
+            <code>{analysisStatus.mode}</code>
+          </div>
+          <div className="analysis-metrics">
+            <span><b>{analysisStatus.recordingsVerified}</b><small>files verified</small></span>
+            <span><b>{analysisStatus.anchorsMatched}</b><small>anchors matched</small></span>
+            <span><b>{analysisStatus.evidenceObserved}</b><small>signals observed</small></span>
+            <span><b>{progress}%</b><small>pipeline complete</small></span>
+          </div>
+          <div className="detector-row" aria-label="Active analysis detectors">
+            {analysisStatus.activeDetectors.length > 0 ? (
+              analysisStatus.activeDetectors.map((detector) => (
+                <span key={detector}><i /> {titleCase(detector)}</span>
+              ))
+            ) : (
+              <span><i /> Media integrity + consent gate</span>
+            )}
+          </div>
+          <div className="trace-stream">
+            {observedTraces.length > 0 ? (
+              observedTraces.slice(-4).map((trace) => (
+                <div key={trace.evidenceId}>
+                  <time>{formatTimestamp(trace.sharedTimeMs)}</time>
+                  <span>{trace.observation}</span>
+                  <code>{trace.evidenceId}</code>
+                </div>
+              ))
+            ) : (
+              <div><time>00:00</time><span>Waiting for synchronized observations…</span><code>media_scan</code></div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="experience-heading" id="experience">
         <div>
@@ -723,17 +859,19 @@ export function UnseenExperience() {
           <span className="locked-orbit" aria-hidden="true"><i /><i /><i /></span>
           <span className="eyebrow">RESULTS GATED</span>
           <h2 id="locked-title">
-            {processState === "running" ? "Reconstructing the squad story…" : "The unseen story hasn’t been built yet."}
+            {processState === "running" ? "Analyzing the preloaded squad footage…" : "The footage is loaded. Reveal what nobody saw."}
           </h2>
           <p>
-            Run reconstruction to align recordings, connect permitted evidence, rank moments and generate a traceable edit plan.
+            One click replays the media analysis trace: fingerprint verification,
+            synchronization, HUD and visual detection, opted-in speech, cross-POV
+            fusion, moment ranking, and the final edit plan.
           </p>
           <button
             type="button"
             onClick={() => void runReconstruction()}
             disabled={!session || processState === "running"}
           >
-            {processState === "running" ? `${progress}% complete` : "Run reconstruction"}
+            {processState === "running" ? `${progress}% complete` : "Analyze preloaded recordings"}
           </button>
         </section>
       ) : (
@@ -756,7 +894,7 @@ export function UnseenExperience() {
                     key={activePerspective}
                     ref={videoRef}
                     className="pov-video"
-                    src={videoSources[activePerspective]}
+                    src={activeRecording?.assetUrl}
                     playsInline
                     preload="metadata"
                     onLoadedMetadata={(event) => applySeek(event.currentTarget)}
@@ -867,18 +1005,28 @@ export function UnseenExperience() {
               <div className="evidence-block">
                 <h3><span aria-hidden="true">⌁</span> Evidence trail · tap to inspect</h3>
                 <div className="evidence-list">
-                  {selectedEvidence.map((evidence, index) => (
-                    <button
-                      key={evidence.id}
-                      type="button"
-                      className={activeEvidenceId === evidence.id ? "active" : ""}
-                      onClick={() => revealEvidence(evidence)}
-                    >
-                      <span>{String(index + 1).padStart(2, "0")}</span>
-                      <span><strong>{evidence.label}</strong><small>{titleCase(evidence.type)} note · {formatTimestamp(evidence.timestampMs)}</small></span>
-                      <i aria-hidden="true">↗</i>
-                    </button>
-                  ))}
+                  {selectedEvidence.map((evidence, index) => {
+                    const trace = session?.media.traces.find(
+                      (candidate) => candidate.evidenceId === evidence.id,
+                    );
+                    return (
+                      <button
+                        key={evidence.id}
+                        type="button"
+                        className={activeEvidenceId === evidence.id ? "active" : ""}
+                        onClick={() => revealEvidence(evidence)}
+                      >
+                        <span>{String(index + 1).padStart(2, "0")}</span>
+                        <span>
+                          <strong>{evidence.label}</strong>
+                          <small>
+                            {trace?.modalities.map(titleCase).join(" + ") ?? titleCase(evidence.type)} · {formatTimestamp(evidence.timestampMs)}
+                          </small>
+                        </span>
+                        <i aria-hidden="true">↗</i>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -894,6 +1042,16 @@ export function UnseenExperience() {
                 <div className="model-note-card">
                   <span>MODEL / EVIDENCE NOTE</span>
                   <p>No opted-in transcript is attached to this selected evidence. The description above is an AI reasoning summary, not a player quote.</p>
+                </div>
+              )}
+
+              {activeMediaTrace && (
+                <div className="source-proof-card">
+                  <span>MEDIA → EVIDENCE</span>
+                  <strong>{activeMediaTrace.observation}</strong>
+                  <small>
+                    {activeMediaTrace.modalities.map(titleCase).join(" + ")} · source frame {formatTimestamp(activeSourceObservation?.sourceTimeMs ?? activeMediaTrace.sharedTimeMs)} · {activeMediaTrace.evidenceId}
+                  </small>
                 </div>
               )}
 
@@ -952,8 +1110,8 @@ export function UnseenExperience() {
           <span className="ask-orbit" aria-hidden="true"><i /><i /><i /></span>
           <span className="eyebrow">CONVERSATIONAL SESSION SEARCH</span>
           <h2 id="ask-title">Ask the game what<br />you never saw.</h2>
-          <p>Answers cite synchronized fixture evidence. Unsupported questions receive an explicit abstention.</p>
-          <div className="privacy-note"><span aria-hidden="true">◈</span><p><strong>Consent-aware by design</strong>Every player can review or revoke footage and voice access.</p></div>
+          <p>Answers cite the synchronized preloaded recordings. Every citation switches POV and seeks the supporting source frame.</p>
+          <div className="privacy-note"><span aria-hidden="true">◈</span><p><strong>Consent-aware by design</strong>Gameplay, voice, analysis, and squad sharing grants are checked before evidence enters the story.</p></div>
         </div>
 
         <div className="chat-card">
@@ -1007,7 +1165,7 @@ export function UnseenExperience() {
               type="text"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder={reasoning ? "Ask what happened in this session…" : "Run reconstruction to unlock session search"}
+              placeholder={reasoning ? "Ask what happened in this session…" : "Analyze the preloaded session to unlock search"}
               autoComplete="off"
               maxLength={280}
               disabled={isAsking || !reasoning}
@@ -1023,7 +1181,7 @@ export function UnseenExperience() {
               <button type="button" onClick={() => setChatError("")}>Dismiss</button>
             </div>
           )}
-          <p className="chat-disclaimer">Fixture-backed prototype · AI reasoning can abstain when evidence is insufficient.</p>
+          <p className="chat-disclaimer">Preloaded synthetic media · grounded evidence only · explicit abstention when support is insufficient.</p>
         </div>
       </section>
 
