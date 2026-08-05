@@ -1,0 +1,16 @@
+[0:v]
+format=yuv420p,
+drawgrid=width=96:height=68:thickness=1:color=0xffffff@0.08,
+drawbox=x=0:y=330:w=960:h=210:color=0x111020:t=fill,
+drawbox=x=85:y=100:w=250:h=300:color=0x23172f:t=fill,
+drawbox=x=635:y=88:w=245:h=300:color=0x1d1830:t=fill,
+drawbox=x=390:y=130:w=180:h=290:color=0x171329:t=fill,
+drawbox=x=470:y=245:w=20:h=2:color=0xffffff@0.9:t=fill,
+drawbox=x=479:y=236:w=2:h=20:color=0xffffff@0.9:t=fill,
+drawbox=x='220+120*(t-519.84)':y='165+22*(t-519.84)':w=24:h=24:color=0xffc34d@0.98:t=fill:enable='between(t\,519.84\,521.19)',
+drawbox=x=0:y=0:w=960:h=540:color=0xffffff@0.97:t=fill:enable='between(t\,521.28\,523.04)',
+drawbox=x=680:y=215:w=36:h=72:color=0xed3248@0.90:t=fill:enable='between(t\,688.14\,692.04)',
+drawbox=x=735:y=182:w=20:h=48:color=0xffc34d@0.95:t=fill:enable='between(t\,688.14\,688.94)',
+drawbox=x=765:y=182:w=20:h=48:color=0xffc34d@0.95:t=fill:enable='between(t\,688.14\,688.94)',
+drawbox=x=0:y=0:w=960:h=540:color=0xed3248@0.16:t=fill:enable='between(t\,692.04\,692.64)',
+ass=assets/demo/miko.ass[v]

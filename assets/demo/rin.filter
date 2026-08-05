@@ -1,0 +1,15 @@
+[0:v]
+format=yuv420p,
+drawgrid=width=72:height=72:thickness=1:color=0xed3248@0.10,
+drawbox=x=0:y=330:w=960:h=210:color=0x07131a:t=fill,
+drawbox=x=70:y=92:w=260:h=300:color=0x112630:t=fill,
+drawbox=x=630:y=82:w=250:h=305:color=0x10212d:t=fill,
+drawbox=x=390:y=135:w=180:h=285:color=0x0a1a22:t=fill,
+drawbox=x=470:y=245:w=20:h=2:color=0xffffff@0.9:t=fill,
+drawbox=x=479:y=236:w=2:h=20:color=0xffffff@0.9:t=fill,
+drawbox=x=130:y=140:w=4:h=260:color=0x35e4ff@0.80:t=fill:enable='between(t\,684.64\,690.09)',
+drawbox=x='830-52*(t-684.64)':y=260:w=36:h=72:color=0xed3248@0.92:t=fill:enable='between(t\,684.64\,689.24)',
+drawbox=x='760-34*(t-684.64)':y=205:w=36:h=72:color=0xed3248@0.92:t=fill:enable='between(t\,684.64\,690.09)',
+drawbox=x=0:y=0:w=960:h=540:color=0xffffff@0.97:t=fill:enable='between(t\,525.18\,526.94)',
+drawbox=x=0:y=0:w=960:h=540:color=0xed3248@0.20:t=fill:enable='between(t\,690.09\,690.84)',
+ass=assets/demo/rin.ass[v]

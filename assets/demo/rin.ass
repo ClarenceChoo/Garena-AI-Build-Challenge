@@ -1,0 +1,27 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 960
+PlayResY: 540
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Meta,Arial,18,&H00E7EEF8,&H000000FF,&H99101722,&H99101722,1,0,0,0,100,100,1,0,3,1,0,7,22,22,18,1
+Style: HUD,Arial,24,&H00FFFFFF,&H000000FF,&HCC0B111B,&HAA0B111B,1,0,0,0,100,100,1,0,3,1,0,8,18,18,18,1
+Style: Sensor,Arial,28,&H00FFE435,&H000000FF,&HDD081015,&HAA081015,1,0,0,0,100,100,1,0,3,2,0,8,18,18,64,1
+Style: Voice,Arial,24,&H00FFFFFF,&H000000FF,&HDD132127,&HCC132127,1,0,0,0,100,100,0,0,3,1,0,2,70,70,54,1
+Style: Enemy,Arial,20,&H004A59FF,&H000000FF,&HDD081015,&HAA081015,1,0,0,0,100,100,1,0,3,1,0,5,18,18,18,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:13:48.00,Meta,,0,0,0,,RIN//LOCK  /  CIPHERA  /  POV 02
+Dialogue: 0,0:00:00.00,0:13:48.00,HUD,,0,0,0,,{\an8\pos(480,26)}ARENA STRIKE     7  —  6     NEON DISTRICT
+Dialogue: 0,0:00:00.00,0:13:48.00,Meta,,0,0,0,,{\an3\pos(934,516)}SYNTHETIC INPUT • VOICE OPTED IN
+Dialogue: 1,0:08:45.18,0:08:46.94,Sensor,,0,0,0,,FLASHED
+Dialogue: 1,0:11:24.64,0:11:27.64,Sensor,,0,0,0,,TRIP SENSOR  //  2 HOSTILES BEHIND
+Dialogue: 2,0:11:24.64,0:11:29.24,Enemy,,0,0,0,,{\pos(740,285)}◆ HOSTILE 01
+Dialogue: 2,0:11:24.64,0:11:30.09,Enemy,,0,0,0,,{\pos(665,220)}◆ HOSTILE 02
+Dialogue: 1,0:11:26.29,0:11:28.04,Voice,,0,0,0,,RIN  //  “Two wrapping. Stay main — I’ve got it.”
+Dialogue: 1,0:11:27.74,0:11:30.09,Sensor,,0,0,0,,FLANK HOLD  //  1 DOWN  •  1 CRITICAL
+Dialogue: 1,0:11:30.09,0:11:32.84,HUD,,0,0,0,,{\an8\pos(480,82)}RIN ELIMINATED  •  FLANK DELAYED
+Dialogue: 1,0:11:44.74,0:11:48.64,Voice,,0,0,0,,SQUAD COMMS  //  LET'S GO!

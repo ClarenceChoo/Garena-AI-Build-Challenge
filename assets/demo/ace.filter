@@ -1,0 +1,16 @@
+[0:v]
+format=yuv420p,
+drawgrid=width=80:height=80:thickness=1:color=0x35e4ff@0.12,
+drawbox=x=0:y=330:w=960:h=210:color=0x08121d:t=fill,
+drawbox=x=90:y=110:w=210:h=250:color=0x122538:t=fill,
+drawbox=x=660:y=95:w=220:h=285:color=0x172637:t=fill,
+drawbox=x=390:y=120:w=180:h=300:color=0x0d1b2a:t=fill,
+drawbox=x=470:y=245:w=20:h=2:color=0xffffff@0.9:t=fill,
+drawbox=x=479:y=236:w=2:h=20:color=0xffffff@0.9:t=fill,
+drawbox=x='mod(t*26\,820)+70':y=400:w=22:h=42:color=0x35e4ff@0.30:t=fill,
+drawbox=x=160:y=155:w=610:h=230:color=0x35e4ff@0.50:t=fill:enable='between(t\,607.2\,611.5)',
+drawbox=x=0:y=0:w=960:h=540:color=0xffffff@0.97:t=fill:enable='between(t\,522.34\,524.10)',
+drawbox=x='760-75*(t-694.1)':y=260:w=34:h=68:color=0xed3248@0.90:t=fill:enable='between(t\,694.1\,696.4)',
+drawbox=x='735-55*(t-696.8)':y=215:w=34:h=68:color=0xed3248@0.90:t=fill:enable='between(t\,696.8\,700.0)',
+drawbox=x=808:y=96:w=120:h=42:color=0x17202d@0.92:t=fill:enable='between(t\,686.4\,688.3)',
+ass=assets/demo/ace.ass[v]

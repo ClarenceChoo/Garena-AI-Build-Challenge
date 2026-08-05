@@ -39,19 +39,29 @@ Never expose the key to the browser or commit `.env.local`.
 
 ## Demo flow
 
-1. Start with the three synchronised squad perspectives.
-2. Select **Run synthetic reconstruction** and show the six evidence-processing stages.
-3. Open the highest-ranked moment: Rin's unseen flank hold enables Ace's clutch.
-4. Switch between **Squad story** and **What Ace missed**.
-5. Expand the evidence chain and play the cited source perspectives.
-6. Ask: “What were my teammates doing during my final clutch?”
-7. End on the grounded answer and the squad-level story.
+The submission is zero-setup after the page loads: three complete synthetic POV
+recordings and opted-in squad comms are already bundled. Every visible event,
+HUD signal, voice line, reaction, synchronization anchor, citation, and edit cut
+maps back to those exact files through `session.media`.
 
-The full flow is designed to fit into roughly three minutes. A reliable fixture
-path is intentional: the action executes deterministic alignment, ranking, and
-edit-planning over fictional evidence using the same contracts as the live model
-seam. It is a product simulation, not a claim that recordings were uploaded or
-analysed live.
+Recommended 90-second judge flow:
+
+1. Preview any of the three **Preloaded squad inputs** at its evidence cue.
+2. Select **Analyze demo session** to replay the six-stage media-analysis trace.
+3. Play the Director's Cut and watch it switch among the source recordings.
+4. Open Rin's top-ranked flank hold and click an evidence row to seek its exact
+   source timestamp.
+5. Switch to **What You Missed** to show Ace-only personalization.
+6. Ask: “What were my teammates doing during my final clutch?” and open one of
+   the answer citations.
+7. End on the media-to-evidence trace: source frame, detector modalities,
+   canonical timestamp, evidence ID, ranking, and edit decision.
+
+The full flow fits comfortably within roughly two minutes. The fixture path is
+intentional: it replays deterministic alignment, multimodal observations,
+cross-perspective fusion, ranking, and edit planning over the bundled fictional
+recordings. This is a precomputed submission analysis—not a claim that an
+arbitrary recording was uploaded or analyzed live during the page request.
 
 ## Product architecture
 
@@ -102,7 +112,8 @@ Advances one deterministic processing stage at a time.
 ```
 
 The response includes the current stage, total progress, stage states, output
-counts, and the next cursor. The final response has `complete: true`.
+counts, media-verification status, active detector modalities, observed evidence
+IDs, and the next cursor. The final response has `complete: true`.
 
 ### `POST /api/demo/ask`
 
@@ -135,7 +146,22 @@ npm test
 
 The test suite verifies the production build, server-rendered product shell,
 session and provenance contracts, non-cacheable demo APIs, staged reconstruction,
+media fingerprints, audio/video tracks, source-to-shared timestamp mappings,
 reasoning artifacts, the complete benchmark Q&A set, and invalid-input behavior.
+
+## Rebuilding the synthetic media
+
+The committed MP4 files are the canonical submission inputs. On macOS with
+FFmpeg installed, they can be rebuilt deterministically from the timed HUD,
+visual-event, and synthetic voice assets:
+
+```bash
+./scripts/generate-demo-media.sh
+```
+
+After regeneration, update the manifest hashes and byte sizes in
+`lib/unseen-fixture.ts`. The acceptance suite fails if the committed assets no
+longer match that manifest.
 
 ## Privacy and safety defaults
 

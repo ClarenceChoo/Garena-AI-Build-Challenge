@@ -1,0 +1,29 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 960
+PlayResY: 540
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Meta,Arial,18,&H00E7EEF8,&H000000FF,&H99101722,&H99101722,1,0,0,0,100,100,1,0,3,1,0,7,22,22,18,1
+Style: HUD,Arial,24,&H00FFFFFF,&H000000FF,&HCC0B111B,&HAA0B111B,1,0,0,0,100,100,1,0,3,1,0,8,18,18,18,1
+Style: Alert,Arial,34,&H004A59FF,&H000000FF,&HDD090D14,&HAA090D14,1,0,0,0,100,100,1,0,3,2,0,8,18,18,66,1
+Style: Voice,Arial,24,&H00FFFFFF,&H000000FF,&HDD151B25,&HCC151B25,1,0,0,0,100,100,0,0,3,1,0,2,70,70,54,1
+Style: Enemy,Arial,20,&H004A59FF,&H000000FF,&HDD090D14,&HAA090D14,1,0,0,0,100,100,1,0,3,1,0,5,18,18,18,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:13:48.00,Meta,,0,0,0,,ACE.EXE  /  KESTREL  /  POV 01
+Dialogue: 0,0:00:00.00,0:13:48.00,HUD,,0,0,0,,{\an8\pos(480,26)}ARENA STRIKE     7  —  6     NEON DISTRICT
+Dialogue: 0,0:00:00.00,0:13:48.00,Meta,,0,0,0,,{\an3\pos(934,516)}SYNTHETIC INPUT • VOICE OPTED IN
+Dialogue: 1,0:08:42.34,0:08:44.10,Alert,,0,0,0,,FLASHED
+Dialogue: 1,0:10:07.20,0:10:11.50,HUD,,0,0,0,,{\an8\pos(480,82)}SMOKE BLOCKING SNIPER LANE
+Dialogue: 1,0:11:26.40,0:11:28.30,HUD,,0,0,0,,{\an9\pos(920,80)}RIN//LOCK  ›  FLANKER
+Dialogue: 1,0:11:34.10,0:11:36.40,Alert,,0,0,0,,FINAL ROUND  •  1 v 2
+Dialogue: 2,0:11:34.10,0:11:36.40,Enemy,,0,0,0,,{\pos(715,280)}◆ DEFENDER 1
+Dialogue: 2,0:11:36.80,0:11:40.00,Enemy,,0,0,0,,{\pos(675,220)}◆ DEFENDER 2
+Dialogue: 1,0:11:36.40,0:11:38.20,HUD,,0,0,0,,{\an9\pos(920,80)}ACE.EXE  ›  DEFENDER 1
+Dialogue: 1,0:11:39.10,0:11:41.55,HUD,,0,0,0,,{\an9\pos(920,80)}ACE.EXE  ›  DEFENDER 2
+Dialogue: 1,0:11:41.90,0:11:45.80,Alert,,0,0,0,,VICTORY  •  7 — 6
+Dialogue: 1,0:11:41.90,0:11:45.80,Voice,,0,0,0,,SQUAD COMMS  //  LET'S GO!

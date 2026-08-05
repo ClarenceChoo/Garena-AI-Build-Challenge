@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildSessionConsentScope } from "../lib/unseen-consent.js";
@@ -66,6 +67,13 @@ test("server-renders the finished UNSEEN product shell", async () => {
   );
   const layout = await readFile(new URL("app/layout.tsx", projectRoot), "utf8");
   assert.match(layout, /summary_large_image/);
+  const experience = await readFile(
+    new URL("app/components/unseen-experience.tsx", projectRoot),
+    "utf8",
+  );
+  assert.match(experience, /PRELOADED SQUAD INPUTS/);
+  assert.match(experience, /MEDIA → EVIDENCE/);
+  assert.match(experience, /Analyze preloaded recordings/);
 });
 
 test("session endpoint returns a referentially valid three-player story", async () => {
@@ -81,6 +89,9 @@ test("session endpoint returns a referentially valid three-player story", async 
 
   assert.equal(session.participants.length, 3);
   assert.equal(session.sources.length, 3);
+  assert.equal(session.media.mode, "preloaded_submission_demo");
+  assert.equal(session.media.recordings.length, 3);
+  assert.equal(session.media.traces.length, session.evidence.length);
   assert.ok(session.evidence.length >= 10);
   assert.ok(session.moments.length >= 3);
   assert.ok(session.directorCut.editBeats.length >= 5);
@@ -100,10 +111,52 @@ test("session endpoint returns a referentially valid three-player story", async 
   for (const moment of session.moments) {
     assert.ok(moment.evidenceIds.every((id) => evidenceIds.has(id)));
   }
+
+  const sourceById = new Map(session.sources.map((source) => [source.id, source]));
+  for (const recording of session.media.recordings) {
+    const asset = new URL(`public${recording.assetUrl}`, projectRoot);
+    const bytes = await readFile(asset);
+    assert.equal(bytes.length, recording.bytes, recording.sourceId);
+    assert.equal(
+      createHash("sha256").update(bytes).digest("hex"),
+      recording.sha256,
+      recording.sourceId,
+    );
+    assert.ok(bytes.includes(Buffer.from("vide")), `${recording.sourceId} needs video`);
+    assert.ok(bytes.includes(Buffer.from("soun")), `${recording.sourceId} needs audio`);
+    await access(
+      new URL(
+        `public/demo/${sourceById.get(recording.sourceId).participantId}-poster.jpg`,
+        projectRoot,
+      ),
+    );
+  }
+
+  const tracedEvidenceIds = new Set(
+    session.media.traces.map((trace) => trace.evidenceId),
+  );
+  assert.deepEqual(tracedEvidenceIds, evidenceIds);
+  for (const trace of session.media.traces) {
+    assert.ok(trace.modalities.length > 0, trace.evidenceId);
+    assert.ok(trace.sourceObservations.length > 0, trace.evidenceId);
+    for (const observation of trace.sourceObservations) {
+      const source = sourceById.get(observation.sourceId);
+      assert.ok(source, `${trace.evidenceId} has an unknown source`);
+      assert.ok(observation.sourceTimeMs >= 0);
+      assert.ok(observation.sourceTimeMs < source.durationMs);
+      assert.ok(
+        Math.abs(
+          observation.sourceTimeMs + source.alignmentOffsetMs - trace.sharedTimeMs,
+        ) <= 1,
+        `${trace.evidenceId} is not aligned to its shared timestamp`,
+      );
+    }
+  }
 });
 
 test("reconstruction advances through all deterministic stages", async () => {
   const progress = [];
+  const observedEvidence = [];
   for (let cursor = 0; cursor <= 5; cursor += 1) {
     const response = await dispatch("/api/demo/process", {
       method: "POST",
@@ -116,14 +169,29 @@ test("reconstruction advances through all deterministic stages", async () => {
     assert.equal(payload.cursor, cursor);
     assert.equal(payload.stages.length, 6);
     progress.push(payload.overallProgress);
+    observedEvidence.push(payload.mediaAnalysis.evidenceObserved);
+    assert.equal(payload.mediaAnalysis.recordingsVerified, 3);
+    assert.equal(payload.mediaAnalysis.mode, "precomputed_media_trace");
+    assert.ok(payload.mediaAnalysis.summary.length > 30);
     if (cursor < 5) assert.equal(payload.nextCursor, cursor + 1);
     else {
       assert.equal(payload.complete, true);
       assert.equal(payload.nextCursor, null);
       assert.ok(payload.outputCounts.editBeats >= 5);
+      assert.equal(payload.mediaAnalysis.anchorsMatched, 6);
+      assert.equal(payload.mediaAnalysis.evidenceObserved, 13);
+      assert.ok(
+        payload.mediaAnalysis.activeDetectors.includes(
+          "cross_perspective_fusion",
+        ),
+      );
     }
   }
   assert.deepEqual(progress, [...progress].sort((a, b) => a - b));
+  assert.deepEqual(
+    observedEvidence,
+    [...observedEvidence].sort((a, b) => a - b),
+  );
 });
 
 test("reasoning endpoint produces aligned, ranked, evidence-linked edit artifacts", async () => {

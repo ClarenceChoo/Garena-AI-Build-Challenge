@@ -1,6 +1,7 @@
 import { DEMO_PIPELINE, DEMO_SESSION, DEMO_SESSION_ID } from "@/lib/unseen-fixture";
 import type {
   ApiError,
+  MediaAnalysisModality,
   PipelineStageStatus,
   ProcessDemoRequest,
   ProcessDemoResponse,
@@ -94,6 +95,53 @@ export async function POST(request: Request): Promise<Response> {
       rankedMoments: cursor >= 4 ? DEMO_SESSION.moments.length : 0,
       editBeats: cursor >= 5 ? DEMO_SESSION.directorCut.editBeats.length : 0,
     },
+    mediaAnalysis: (() => {
+      const traces = DEMO_SESSION.media.traces;
+      const observedEvidenceIds =
+        cursor < 2
+          ? []
+          : cursor === 2
+            ? traces
+                .filter((trace) => !trace.modalities.includes("cross_perspective_fusion"))
+                .map((trace) => trace.evidenceId)
+            : traces.map((trace) => trace.evidenceId);
+      const detectorStages: MediaAnalysisModality[][] = [
+        [],
+        ["hud_ocr", "audio_reaction"],
+        ["visual_detection", "hud_ocr", "speech_to_text", "audio_reaction"],
+        [
+          "visual_detection",
+          "hud_ocr",
+          "speech_to_text",
+          "audio_reaction",
+          "cross_perspective_fusion",
+        ],
+        ["cross_perspective_fusion"],
+        ["cross_perspective_fusion"],
+      ];
+      const summaries = [
+        "Verified the three preloaded media fingerprints and consent grants.",
+        "Matched six timer, audio, round-start, and kill-feed anchors.",
+        "Read visible events, HUD signals, opted-in speech, and audio reactions.",
+        "Fused the observations into one shared evidence timeline.",
+        "Ranked the squad moments and selected evidence-backed perspectives.",
+        "Generated the Director's Cut, What You Missed, and grounded session index.",
+      ];
+      return {
+        mode: "precomputed_media_trace" as const,
+        recordingsVerified: DEMO_SESSION.media.recordings.length,
+        anchorsMatched: cursor >= 1
+          ? DEMO_SESSION.sources.reduce(
+              (total, source) => total + source.anchors.length,
+              0,
+            )
+          : 0,
+        evidenceObserved: observedEvidenceIds.length,
+        observedEvidenceIds,
+        activeDetectors: detectorStages[cursor],
+        summary: summaries[cursor],
+      };
+    })(),
   };
 
   return Response.json(response, {

@@ -69,14 +69,55 @@ export interface AlignedSource {
   durationMs: Milliseconds;
   alignmentOffsetMs: number;
   alignmentConfidence: number;
-  resolution: "1920x1080" | "2560x1440";
-  frameRate: 60;
+  resolution: "960x540" | "1920x1080" | "2560x1440";
+  frameRate: 15 | 60;
   audio: {
     game: boolean;
     optedInVoice: boolean;
     sampleRateHz: 48000;
   };
   anchors: AlignmentAnchor[];
+}
+
+export type MediaAnalysisModality =
+  | "visual_detection"
+  | "hud_ocr"
+  | "speech_to_text"
+  | "audio_reaction"
+  | "cross_perspective_fusion";
+
+export interface PreloadedRecording {
+  sourceId: string;
+  assetUrl: string;
+  sha256: string;
+  bytes: number;
+  durationMs: Milliseconds;
+  preloadCueMs: Milliseconds;
+  containsGameAudio: boolean;
+  containsOptedInVoice: boolean;
+  label: string;
+}
+
+export interface SourceObservation {
+  sourceId: string;
+  sourceTimeMs: Milliseconds;
+}
+
+export interface MediaEvidenceTrace {
+  evidenceId: string;
+  sharedTimeMs: Milliseconds;
+  modalities: MediaAnalysisModality[];
+  sourceObservations: SourceObservation[];
+  observation: string;
+}
+
+export interface DemoMediaBundle {
+  mode: "preloaded_submission_demo";
+  manifestVersion: "unseen-media-v1";
+  label: string;
+  analysisDisclosure: string;
+  recordings: PreloadedRecording[];
+  traces: MediaEvidenceTrace[];
 }
 
 export type EvidenceType =
@@ -217,6 +258,7 @@ export interface UnseenSession {
   participants: Participant[];
   pipeline: PipelineStageDefinition[];
   sources: AlignedSource[];
+  media: DemoMediaBundle;
   incidents: Incident[];
   moments: RankedMoment[];
   evidence: SessionEvidence[];
@@ -265,6 +307,15 @@ export interface ProcessDemoResponse {
     incidents: number;
     rankedMoments: number;
     editBeats: number;
+  };
+  mediaAnalysis: {
+    mode: "precomputed_media_trace";
+    recordingsVerified: number;
+    anchorsMatched: number;
+    evidenceObserved: number;
+    observedEvidenceIds: string[];
+    activeDetectors: MediaAnalysisModality[];
+    summary: string;
   };
 }
 
