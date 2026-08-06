@@ -5,6 +5,10 @@ import test from "node:test";
 import { buildSessionConsentScope } from "../lib/unseen-consent.js";
 
 const projectRoot = new URL("../", import.meta.url);
+const AUTH_HEADERS = Object.freeze({
+  "oai-authenticated-user-id": "test-user-123",
+  "oai-authenticated-user-email": "judge@example.com",
+});
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -52,6 +56,7 @@ test("server-renders the finished UNSEEN product shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>UNSEEN — The whole squad story<\/title>/i);
   assert.match(html, /UNSEEN/);
+  assert.match(html, /Sign in with ChatGPT/);
   assert.match(html, /og\.png/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Building your site/i);
 
@@ -87,6 +92,12 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(realWorkbench, /\/api\/analyze\/clip/);
   assert.match(realWorkbench, /\/api\/analyze\/link/);
   assert.match(realWorkbench, /\/api\/analyze\/ask/);
+
+  const signedInResponse = await dispatch("/", { headers: AUTH_HEADERS });
+  assert.equal(signedInResponse.status, 200);
+  const signedInHtml = await signedInResponse.text();
+  assert.match(signedInHtml, /judge@example\.com/);
+  assert.match(signedInHtml, /Sign out/);
 });
 
 test("live analysis fails closed when the server secret is absent", async () => {
@@ -101,9 +112,18 @@ test("live analysis fails closed when the server secret is absent", async () => 
     assert.equal(statusPayload.mode, "unavailable");
     assert.equal(statusPayload.scriptedFallback, false);
 
-    const response = await dispatch("/api/analyze/clip", {
+    const unauthorizedResponse = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(unauthorizedResponse.status, 401);
+    const unauthorizedPayload = await unauthorizedResponse.json();
+    assert.equal(unauthorizedPayload.error.code, "UNAUTHORIZED");
+
+    const response = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
       body: "{}",
     });
     assert.equal(response.status, 503);
@@ -169,7 +189,7 @@ test("live clip route returns only response-backed visual and transcript evidenc
   try {
     const response = await dispatch("/api/analyze/clip", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
       body: JSON.stringify({
         clip: { id: "clip-a", name: "garena-pov-a.mp4", playerLabel: "Player A", durationMs: 2_000 },
         frames: [
@@ -306,7 +326,7 @@ test("cross-clip route links only valid observations and exposes the real respon
   try {
     const response = await dispatch("/api/analyze/link", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
       body: JSON.stringify({ clips: [clip("clip-a", "obs-a", "resp_clip_a"), clip("clip-b", "obs-b", "resp_clip_b")] }),
     });
     assert.equal(response.status, 200);
@@ -320,7 +340,7 @@ test("cross-clip route links only valid observations and exposes the real respon
 
     const askResponse = await dispatch("/api/analyze/ask", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
       body: JSON.stringify({
         question: "What happened off-screen?",
         viewerClipId: "clip-a",

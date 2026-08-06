@@ -211,6 +211,12 @@ longer match that manifest.
 
 ## Privacy and safety defaults
 
+- The hosted Site uses managed Sign in with ChatGPT and an owner-only access
+  policy by default. Anonymous visitors cannot reach the application.
+- Live analysis, linking, and session-search endpoints independently require
+  the authenticated Sites user headers before they can consume API credits.
+- The account indicator exposes a safe same-origin sign-out link; the
+  application never handles passwords, tokens, or OAuth callbacks itself.
 - Gameplay recording, voice analysis, AI analysis, and squad sharing are modeled
   as separate consent grants in the synthetic fixture.
 - Evidence is filtered at the source: gameplay evidence requires the three base

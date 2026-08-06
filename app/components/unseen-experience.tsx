@@ -346,7 +346,13 @@ function OfficialGarenaFootage() {
   );
 }
 
-export function UnseenExperience() {
+interface UnseenExperienceProps {
+  viewer: { displayName: string; email: string } | null;
+  signInPath: string;
+  signOutPath: string;
+}
+
+export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExperienceProps) {
   const [session, setSession] = useState<UnseenSession | null>(null);
   const [sessionError, setSessionError] = useState("");
   const [reasoning, setReasoning] = useState<ReasoningResponse | null>(null);
@@ -891,6 +897,15 @@ export function UnseenExperience() {
           </div>
         </div>
         <div className="header-actions">
+          <div className={`auth-account ${viewer ? "is-signed-in" : "is-guest"}`}>
+            <span aria-hidden="true" />
+            <div>
+              <strong title={viewer?.email}>{viewer?.displayName ?? "Guest viewer"}</strong>
+              <a href={viewer ? signOutPath : signInPath}>
+                {viewer ? "Sign out" : "Sign in with ChatGPT"}
+              </a>
+            </div>
+          </div>
           <div className="consent-summary" aria-label={`${consentedCount} players opted in`}>
             <span aria-hidden="true">✓</span> {consentedCount}/{session?.participants.length ?? 3} opted in
           </div>

@@ -1,5 +1,6 @@
 import { askRealSession, UnseenOpenAIError } from "@/lib/unseen-openai";
 import type { RealAnalysisApiError } from "@/lib/real-analysis-types";
+import { getChatGPTUser } from "@/app/chatgpt-auth";
 
 export const runtime = "edge";
 
@@ -11,6 +12,10 @@ function errorResponse(status: number, code: RealAnalysisApiError["error"]["code
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const user = await getChatGPTUser();
+  if (!user) {
+    return errorResponse(401, "UNAUTHORIZED", "Sign in with ChatGPT to search this squad session.");
+  }
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return errorResponse(503, "AI_NOT_CONFIGURED", "Live AI is not configured on this deployment. Add the OPENAI_API_KEY server secret; UNSEEN will not substitute prewritten answers.");
