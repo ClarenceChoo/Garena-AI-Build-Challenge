@@ -17,6 +17,7 @@ const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
+const SERVICE_TOKEN_HEADER = "x-unseen-service-token";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
@@ -82,8 +83,7 @@ async function hasValidServiceToken(): Promise<boolean> {
   if (!expectedToken) return false;
 
   const requestHeaders = await headers();
-  const authorization = requestHeaders.get("authorization");
-  return authorization === `Bearer ${expectedToken}`;
+  return requestHeaders.get(SERVICE_TOKEN_HEADER) === expectedToken;
 }
 
 export function chatGPTSignInPath(returnTo: string): string {

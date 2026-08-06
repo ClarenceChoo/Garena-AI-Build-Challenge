@@ -151,7 +151,7 @@ test("live analysis fails closed when the server secret is absent", async () => 
     const invalidServiceTokenResponse = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: {
-        authorization: "Bearer wrong-token",
+        "x-unseen-service-token": "wrong-token",
         "content-type": "application/json",
       },
       body: "{}",
@@ -161,7 +161,7 @@ test("live analysis fails closed when the server secret is absent", async () => 
     const serviceTokenResponse = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: {
-        authorization: "Bearer test-service-token",
+        "x-unseen-service-token": "test-service-token",
         "content-type": "application/json",
       },
       body: "{}",
