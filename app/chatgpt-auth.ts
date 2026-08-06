@@ -59,8 +59,8 @@ export function isChatGPTUserAllowed(user: ChatGPTUser): boolean {
   return allowedEmails.has(user.email.trim().toLocaleLowerCase());
 }
 
-export async function unseenApiAuthorizationError(): Promise<Response | null> {
-  if (await hasValidServiceToken()) return null;
+export async function unseenApiAuthorizationError(payload?: unknown): Promise<Response | null> {
+  if (await hasValidServiceToken(payload)) return null;
 
   const user = await getChatGPTUser();
   if (!user) {
@@ -78,9 +78,18 @@ export async function unseenApiAuthorizationError(): Promise<Response | null> {
   return null;
 }
 
-async function hasValidServiceToken(): Promise<boolean> {
+async function hasValidServiceToken(payload?: unknown): Promise<boolean> {
   const expectedToken = process.env.UNSEEN_API_ACCESS_TOKEN?.trim();
   if (!expectedToken) return false;
+
+  const payloadToken =
+    typeof payload === "object" &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    typeof (payload as Record<string, unknown>).serviceToken === "string"
+      ? (payload as Record<string, string>).serviceToken
+      : null;
+  if (payloadToken === expectedToken) return true;
 
   const requestHeaders = await headers();
   return requestHeaders.get(SERVICE_TOKEN_HEADER) === expectedToken;

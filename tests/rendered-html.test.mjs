@@ -161,10 +161,9 @@ test("live analysis fails closed when the server secret is absent", async () => 
     const serviceTokenResponse = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: {
-        "x-unseen-service-token": "test-service-token",
         "content-type": "application/json",
       },
-      body: "{}",
+      body: JSON.stringify({ serviceToken: "test-service-token" }),
     });
     assert.equal(serviceTokenResponse.status, 503);
     assert.equal((await serviceTokenResponse.json()).error.code, "AI_NOT_CONFIGURED");
