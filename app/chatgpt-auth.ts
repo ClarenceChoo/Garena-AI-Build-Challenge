@@ -59,6 +59,8 @@ export function isChatGPTUserAllowed(user: ChatGPTUser): boolean {
 }
 
 export async function unseenApiAuthorizationError(): Promise<Response | null> {
+  if (await hasValidServiceToken()) return null;
+
   const user = await getChatGPTUser();
   if (!user) {
     return Response.json(
@@ -73,6 +75,15 @@ export async function unseenApiAuthorizationError(): Promise<Response | null> {
     );
   }
   return null;
+}
+
+async function hasValidServiceToken(): Promise<boolean> {
+  const expectedToken = process.env.UNSEEN_API_ACCESS_TOKEN?.trim();
+  if (!expectedToken) return false;
+
+  const requestHeaders = await headers();
+  const authorization = requestHeaders.get("authorization");
+  return authorization === `Bearer ${expectedToken}`;
 }
 
 export function chatGPTSignInPath(returnTo: string): string {

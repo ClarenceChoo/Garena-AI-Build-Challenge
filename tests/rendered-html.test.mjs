@@ -114,7 +114,9 @@ test("server-renders the finished UNSEEN product shell", async () => {
 
 test("live analysis fails closed when the server secret is absent", async () => {
   const previousKey = process.env.OPENAI_API_KEY;
+  const previousAccessToken = process.env.UNSEEN_API_ACCESS_TOKEN;
   delete process.env.OPENAI_API_KEY;
+  process.env.UNSEEN_API_ACCESS_TOKEN = "test-service-token";
   try {
     const statusResponse = await dispatch("/api/analyze/status");
     assert.equal(statusResponse.status, 200);
@@ -146,6 +148,27 @@ test("live analysis fails closed when the server secret is absent", async () => 
     const forbiddenPayload = await forbiddenResponse.json();
     assert.equal(forbiddenPayload.error.code, "FORBIDDEN");
 
+    const invalidServiceTokenResponse = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer wrong-token",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    assert.equal(invalidServiceTokenResponse.status, 401);
+
+    const serviceTokenResponse = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-service-token",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    assert.equal(serviceTokenResponse.status, 503);
+    assert.equal((await serviceTokenResponse.json()).error.code, "AI_NOT_CONFIGURED");
+
     const response = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: { ...AUTH_HEADERS, "content-type": "application/json" },
@@ -159,6 +182,8 @@ test("live analysis fails closed when the server secret is absent", async () => 
   } finally {
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
+    if (previousAccessToken === undefined) delete process.env.UNSEEN_API_ACCESS_TOKEN;
+    else process.env.UNSEEN_API_ACCESS_TOKEN = previousAccessToken;
   }
 });
 
