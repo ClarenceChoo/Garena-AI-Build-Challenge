@@ -906,7 +906,7 @@ export function UnseenExperience() {
       </header>
 
       <div className="fixture-banner" role="note">
-        <span>LIVE AI PRODUCT</span>
+        <span>LIVE AI PIPELINE</span>
         The upload workbench runs real OpenAI vision, transcription, and cross-POV linking. The lower fixture remains a clearly disclosed benchmark only.
       </div>
 

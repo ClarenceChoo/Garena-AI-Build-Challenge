@@ -20,6 +20,11 @@
 .real-integrity-card strong { color: #35e4ff; font: 800 12px/1 var(--font-geist-mono); letter-spacing: .12em; }
 .real-integrity-card span { color: #c7ccd4; font-size: 13px; }
 .real-integrity-card span::before { content: "✓"; margin-right: 8px; color: #35e4ff; }
+.real-integrity-card.backend-offline { border-color: rgba(237,28,46,.35); background: rgba(237,28,46,.055); }
+.real-integrity-card.backend-offline strong { color: #ff6d79; }
+.real-integrity-card.backend-offline span::before { content: "!"; color: #ff6d79; }
+.real-integrity-card.backend-error { border-color: rgba(255,158,56,.38); background: rgba(255,158,56,.055); }
+.real-integrity-card.backend-error strong { color: #ff9e38; }
 .real-flow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 36px 0 22px; padding: 13px 16px; border-block: 1px solid rgba(255,255,255,.1); color: #7f8491; font: 700 10px/1 var(--font-geist-mono); letter-spacing: .09em; }
 .real-flow span { color: #e5e6e9; }
 .real-source-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }

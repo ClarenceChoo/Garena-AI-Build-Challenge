@@ -25,6 +25,17 @@ interface LocalClip {
   analysis: RealClipAnalysis | null;
 }
 
+interface LiveBackendStatus {
+  configured: boolean;
+  mode: "live_openai" | "unavailable";
+  models: {
+    vision: string;
+    linking: string;
+    transcription: string;
+  } | null;
+  scriptedFallback: false;
+}
+
 function formatMs(value: number): string {
   const totalSeconds = Math.max(0, Math.floor(value / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -195,6 +206,8 @@ export function RealAnalysisWorkbench() {
   const [answer, setAnswer] = useState<AskRealSessionResponse | null>(null);
   const [askError, setAskError] = useState("");
   const [isAsking, setIsAsking] = useState(false);
+  const [backendStatus, setBackendStatus] = useState<LiveBackendStatus | null>(null);
+  const [backendCheckFailed, setBackendCheckFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const clipsRef = useRef<LocalClip[]>([]);
   const videoRefs = useRef(new Map<string, HTMLVideoElement>());
@@ -202,6 +215,27 @@ export function RealAnalysisWorkbench() {
   useEffect(() => {
     clipsRef.current = clips;
   }, [clips]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkBackend() {
+      try {
+        const response = await fetch("/api/analyze/status", { cache: "no-store" });
+        if (!response.ok) throw new Error("Status request failed.");
+        const status = (await response.json()) as LiveBackendStatus;
+        if (!cancelled) {
+          setBackendStatus(status);
+          setBackendCheckFailed(false);
+        }
+      } catch {
+        if (!cancelled) setBackendCheckFailed(true);
+      }
+    }
+    void checkBackend();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => () => {
     clipsRef.current.forEach((clip) => URL.revokeObjectURL(clip.url));
@@ -212,6 +246,7 @@ export function RealAnalysisWorkbench() {
     clips.length <= REAL_ANALYSIS_LIMITS.maximumClips &&
     clips.every((clip) => clip.durationMs > 0 && clip.durationMs <= REAL_ANALYSIS_LIMITS.maximumDurationMs) &&
     permissionConfirmed &&
+    backendStatus?.configured === true &&
     runState !== "running";
 
   const selectedMoment = useMemo(
@@ -395,8 +430,9 @@ export function RealAnalysisWorkbench() {
             analyzes every POV with OpenAI, then builds one evidence-linked squad timeline.
           </p>
         </div>
-        <div className="real-integrity-card">
-          <strong>NO SCRIPTED FALLBACK</strong>
+        <div className={`real-integrity-card backend-${backendStatus?.configured ? "ready" : backendCheckFailed ? "error" : "offline"}`}>
+          <strong>{backendStatus?.configured ? "LIVE OPENAI BACKEND READY" : backendCheckFailed ? "BACKEND STATUS UNREACHABLE" : "LIVE AI NEEDS CONFIGURATION"}</strong>
+          <span>{backendStatus?.configured ? `${backendStatus.models?.vision} vision + ${backendStatus.models?.linking} linking` : "OPENAI_API_KEY is not configured"}</span>
           <span>Real OpenAI response IDs required</span>
           <span>Every claim cites a source frame</span>
           <span>Failures stay failures — never fake results</span>
@@ -477,7 +513,7 @@ export function RealAnalysisWorkbench() {
       </div>
 
       <div className={`real-runbar run-${runState}`} aria-live="polite">
-        <div><i /><span><strong>{runState === "running" ? "REAL AI RUN IN PROGRESS" : runState === "complete" ? "REAL AI RUN VERIFIED" : runState === "error" ? "RUN STOPPED — NO FALLBACK USED" : "READY FOR REAL CLIPS"}</strong>{runMessage}</span></div>
+        <div><i /><span><strong>{runState === "running" ? "REAL AI RUN IN PROGRESS" : runState === "complete" ? "REAL AI RUN VERIFIED" : runState === "error" ? "RUN STOPPED — NO FALLBACK USED" : backendStatus?.configured ? "READY FOR REAL CLIPS" : "LIVE AI BACKEND NOT CONFIGURED"}</strong>{backendStatus?.configured === false && runState === "idle" ? "A server-side OPENAI_API_KEY is required before real clips can be analyzed." : runMessage}</span></div>
         <button type="button" disabled={!canAnalyze} onClick={() => void runAnalysis()}>
           {runState === "running" ? "Analyzing…" : result ? "Analyze again" : "Analyze with OpenAI"} <span>✦</span>
         </button>

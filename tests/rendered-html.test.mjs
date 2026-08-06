@@ -83,7 +83,7 @@ test("server-renders the finished UNSEEN product shell", async () => {
     "utf8",
   );
   assert.match(realWorkbench, /LIVE MULTIMODAL PIPELINE/);
-  assert.match(realWorkbench, /NO SCRIPTED FALLBACK/);
+  assert.match(realWorkbench, /LIVE AI NEEDS CONFIGURATION/);
   assert.match(realWorkbench, /\/api\/analyze\/clip/);
   assert.match(realWorkbench, /\/api\/analyze\/link/);
   assert.match(realWorkbench, /\/api\/analyze\/ask/);
@@ -93,6 +93,14 @@ test("live analysis fails closed when the server secret is absent", async () => 
   const previousKey = process.env.OPENAI_API_KEY;
   delete process.env.OPENAI_API_KEY;
   try {
+    const statusResponse = await dispatch("/api/analyze/status");
+    assert.equal(statusResponse.status, 200);
+    assert.equal(statusResponse.headers.get("cache-control"), "no-store");
+    const statusPayload = await statusResponse.json();
+    assert.equal(statusPayload.configured, false);
+    assert.equal(statusPayload.mode, "unavailable");
+    assert.equal(statusPayload.scriptedFallback, false);
+
     const response = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: { "content-type": "application/json" },
