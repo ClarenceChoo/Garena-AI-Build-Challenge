@@ -78,6 +78,258 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(experience, /DFxrTiUqpCM/);
   assert.match(experience, /Free Fire Esports Official/);
   assert.match(experience, /REAL FOOTAGE \/ HONEST PROTOTYPE/);
+  const realWorkbench = await readFile(
+    new URL("app/components/real-analysis-workbench.tsx", projectRoot),
+    "utf8",
+  );
+  assert.match(realWorkbench, /LIVE MULTIMODAL PIPELINE/);
+  assert.match(realWorkbench, /NO SCRIPTED FALLBACK/);
+  assert.match(realWorkbench, /\/api\/analyze\/clip/);
+  assert.match(realWorkbench, /\/api\/analyze\/link/);
+  assert.match(realWorkbench, /\/api\/analyze\/ask/);
+});
+
+test("live analysis fails closed when the server secret is absent", async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  try {
+    const response = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const payload = await response.json();
+    assert.equal(payload.error.code, "AI_NOT_CONFIGURED");
+    assert.match(payload.error.message, /will not substitute prewritten results/i);
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("live clip route returns only response-backed visual and transcript evidence", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  const upstreamCalls = [];
+  process.env.OPENAI_API_KEY = "test-only-key";
+  globalThis.fetch = async (url, init) => {
+    upstreamCalls.push({ url: String(url), init });
+    if (String(url).endsWith("/audio/transcriptions")) {
+      assert.ok(init.body instanceof FormData);
+      return new Response(JSON.stringify({ text: "Flank left, I have it." }), {
+        status: 200,
+        headers: { "content-type": "application/json", "x-request-id": "req_transcription_real" },
+      });
+    }
+    const outbound = JSON.parse(init.body);
+    assert.equal(outbound.model, "gpt-5.6-sol");
+    assert.equal(outbound.store, false);
+    assert.equal(outbound.text.format.type, "json_schema");
+    assert.ok(
+      outbound.input[0].content.some((item) => item.type === "input_image"),
+      "the real frame must be sent as multimodal model input",
+    );
+    return new Response(
+      JSON.stringify({
+        id: "resp_clip_real",
+        model: "gpt-5.6-sol-2026-08-01",
+        output_text: JSON.stringify({
+          gameTitle: "Free Fire",
+          perspectiveSummary: "The player watches the left flank and calls the rotation.",
+          observations: [
+            {
+              id: "obs-flank",
+              timestampMs: 1100,
+              endMs: 1500,
+              category: "teamwork",
+              description: "A hostile silhouette enters from the left while the player holds cover.",
+              importance: 84,
+              confidence: 0.94,
+              evidenceFrameIds: ["clip-a-frame-01"],
+              transcriptQuote: "Flank left, I have it.",
+            },
+          ],
+        }),
+        usage: { input_tokens: 321, output_tokens: 88 },
+      }),
+      { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_clip_real" } },
+    );
+  };
+
+  try {
+    const response = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clip: { id: "clip-a", name: "garena-pov-a.mp4", playerLabel: "Player A", durationMs: 2_000 },
+        frames: [
+          { id: "clip-a-frame-01", timestampMs: 500, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
+          { id: "clip-a-frame-02", timestampMs: 1_500, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
+        ],
+        audio: { mimeType: "audio/wav", dataBase64: "UklGRg==" },
+        voiceConsent: true,
+      }),
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.api.real, true);
+    assert.equal(payload.api.visionResponseId, "resp_clip_real");
+    assert.equal(payload.api.visionRequestId, "req_clip_real");
+    assert.equal(payload.api.transcriptionRequestId, "req_transcription_real");
+    assert.equal(payload.audioStatus, "transcribed");
+    assert.deepEqual(payload.observations[0].evidenceFrameIds, ["clip-a-frame-01"]);
+    assert.equal(upstreamCalls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("cross-clip route links only valid observations and exposes the real response trace", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  globalThis.fetch = async (_url, init) => {
+    const outbound = JSON.parse(init.body);
+    assert.equal(outbound.model, "gpt-5.6-sol");
+    if (outbound.text.format.name === "unseen_real_session_answer") {
+      assert.match(outbound.input, /What happened off-screen/);
+      return new Response(
+        JSON.stringify({
+          id: "resp_answer_real",
+          model: "gpt-5.6-sol-2026-08-01",
+          output_text: JSON.stringify({
+            answer: "Player B called the left flank before Player A pushed.",
+            confidence: 0.92,
+            answerType: "observation",
+            caveat: "Limited to the supplied session evidence.",
+            citations: [{ clipId: "clip-b", observationId: "obs-b", timestampMs: 1_250 }],
+          }),
+          usage: { input_tokens: 200, output_tokens: 60 },
+        }),
+        { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_answer_real" } },
+      );
+    }
+    assert.match(outbound.input, /resp_clip_a/);
+    assert.match(outbound.input, /resp_clip_b/);
+    return new Response(
+      JSON.stringify({
+        id: "resp_link_real",
+        model: "gpt-5.6-sol-2026-08-01",
+        output_text: JSON.stringify({
+          storyTitle: "The Flank Nobody Else Saw",
+          recap: "Player B's warning explains why Player A survived the final push.",
+          alignment: [
+            { clipId: "clip-a", offsetMs: 0, confidence: 1, basis: ["reference clip"] },
+            { clipId: "clip-b", offsetMs: -250, confidence: 0.86, basis: ["matching HUD timer", "same flank call"] },
+          ],
+          linkedMoments: [
+            {
+              id: "moment-flank",
+              title: "The unseen warning",
+              summary: "One perspective shows the push; the other reveals the warning that enabled it.",
+              sharedTimeMs: 1_000,
+              importance: 91,
+              emotion: "tense",
+              whyLinked: "Both observations show the same HUD timer and complementary action.",
+              sourceLinks: [
+                { clipId: "clip-a", observationId: "obs-a", timestampMs: 1_000, role: "action" },
+                { clipId: "clip-b", observationId: "obs-b", timestampMs: 1_250, role: "setup" },
+              ],
+            },
+          ],
+          directorCut: [
+            { order: 1, momentId: "moment-flank", clipId: "clip-b", timestampMs: 1_250, durationMs: 3_000, reason: "Reveal the warning before the push." },
+            { order: 2, momentId: "moment-flank", clipId: "clip-a", timestampMs: 1_000, durationMs: 3_000, reason: "Show its payoff." },
+          ],
+          whatYouMissed: [
+            {
+              viewerClipId: "clip-a",
+              momentId: "moment-flank",
+              title: "The warning behind your push",
+              explanation: "Player B saw and called the flank outside Player A's view.",
+              evidenceLinks: [
+                { clipId: "clip-b", observationId: "obs-b", timestampMs: 1_250, role: "setup" },
+              ],
+            },
+          ],
+        }),
+        usage: { input_tokens: 444, output_tokens: 111 },
+      }),
+      { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_link_real" } },
+    );
+  };
+
+  const clip = (id, observationId, responseId) => ({
+    clipId: id,
+    clipName: `${id}.mp4`,
+    playerLabel: id === "clip-a" ? "Player A" : "Player B",
+    durationMs: 2_000,
+    gameTitle: "Free Fire",
+    perspectiveSummary: "Gameplay perspective.",
+    transcript: "Flank left.",
+    audioStatus: "transcribed",
+    observations: [{
+      id: observationId,
+      timestampMs: 1_000,
+      endMs: 1_300,
+      category: "teamwork",
+      description: "A linked action.",
+      importance: 80,
+      confidence: 0.9,
+      evidenceFrameIds: [`${id}-frame-01`],
+      transcriptQuote: "Flank left.",
+    }],
+    api: {
+      real: true,
+      visionResponseId: responseId,
+      visionRequestId: `req_${id}`,
+      visionModel: "gpt-5.6-sol",
+      transcriptionRequestId: "req_transcript",
+      transcriptionModel: "gpt-4o-mini-transcribe",
+      inputTokens: 100,
+      outputTokens: 50,
+    },
+  });
+
+  try {
+    const response = await dispatch("/api/analyze/link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clips: [clip("clip-a", "obs-a", "resp_clip_a"), clip("clip-b", "obs-b", "resp_clip_b")] }),
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.api.real, true);
+    assert.equal(payload.api.responseId, "resp_link_real");
+    assert.equal(payload.api.requestId, "req_link_real");
+    assert.equal(payload.linkedMoments[0].sourceLinks.length, 2);
+    assert.equal(payload.directorCut.length, 2);
+    assert.equal(payload.whatYouMissed.length, 1);
+
+    const askResponse = await dispatch("/api/analyze/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: "What happened off-screen?",
+        viewerClipId: "clip-a",
+        clips: [clip("clip-a", "obs-a", "resp_clip_a"), clip("clip-b", "obs-b", "resp_clip_b")],
+        session: payload,
+      }),
+    });
+    assert.equal(askResponse.status, 200);
+    const askPayload = await askResponse.json();
+    assert.equal(askPayload.api.real, true);
+    assert.equal(askPayload.api.responseId, "resp_answer_real");
+    assert.equal(askPayload.citations[0].observationId, "obs-b");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
 });
 
 test("session endpoint returns a referentially valid three-player story", async () => {

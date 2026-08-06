@@ -28,6 +28,7 @@ import type {
   MissedPerspectiveMoment,
   PipelineAuditEntry,
 } from "@/lib/unseen-pipeline";
+import { RealAnalysisWorkbench } from "./real-analysis-workbench";
 import "./unseen-experience.css";
 
 type StoryMode = "director" | "missed";
@@ -308,7 +309,7 @@ function OfficialGarenaFootage() {
               ? `Scanning official clip · ${scanProgress}%`
               : scanState === "complete"
                 ? "Replay evidence scan"
-                : "Analyze this real clip"}
+                : "Replay verified observations"}
           </button>
 
           <div className="official-scan-track" aria-hidden="true">
@@ -896,23 +897,20 @@ export function UnseenExperience() {
           <button
             className="reconstruct-button"
             type="button"
-            onClick={() => void runReconstruction()}
-            disabled={!session || processState === "running"}
+            onClick={() => document.getElementById("live-analysis")?.scrollIntoView({ behavior: "smooth" })}
           >
             <span className="button-spark" aria-hidden="true">✦</span>
-            {processState === "running"
-              ? "Analyzing media…"
-              : processState === "complete"
-                ? "Analyze again"
-                : "Analyze demo session"}
+            Analyze real clips
           </button>
         </div>
       </header>
 
       <div className="fixture-banner" role="note">
-        <span>HYBRID SUBMISSION DEMO</span>
-        Real Garena Free Fire footage proves game-context understanding; the consented synthetic fixture proves end-to-end multi-POV reconstruction.
+        <span>LIVE AI PRODUCT</span>
+        The upload workbench runs real OpenAI vision, transcription, and cross-POV linking. The lower fixture remains a clearly disclosed benchmark only.
       </div>
+
+      <RealAnalysisWorkbench />
 
       <OfficialGarenaFootage />
 
@@ -949,8 +947,21 @@ export function UnseenExperience() {
             <span><i /> 3 media fingerprints verified</span>
             <span><i /> 6 alignment anchors embedded</span>
             <span><i /> {session.media.traces.length} evidence observations mapped</span>
-            <span><i /> No upload or API key required</span>
+            <span><i /> Synthetic benchmark · not a live AI result</span>
           </div>
+          <button
+            className="reconstruct-button"
+            type="button"
+            onClick={() => void runReconstruction()}
+            disabled={!session || processState === "running"}
+          >
+            <span className="button-spark" aria-hidden="true">✦</span>
+            {processState === "running"
+              ? "Running benchmark…"
+              : processState === "complete"
+                ? "Replay synthetic benchmark"
+                : "Run disclosed synthetic benchmark"}
+          </button>
         </section>
       )}
 

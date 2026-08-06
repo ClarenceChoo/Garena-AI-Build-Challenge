@@ -9,10 +9,11 @@ reactions and consequences, and turns the shared evidence into three outputs:
 - **Ask UNSEEN**, grounded session search with playable evidence.
 
 This repository is the judge-facing proof of concept for the Garena AI Build
-Challenge. The experience is deliberately built around one high-quality,
-three-player synthetic fixture so the product insight is obvious and the demo
-is reliable. Every player name, quote, event, and POV clip in the fixture is
-fictional; the repository contains no real player recording or voice data.
+Challenge. Its primary workflow accepts two to four real local recordings,
+extracts timestamped frames and optional opted-in audio in the browser, analyzes
+each POV with OpenAI, and runs a second model pass that links evidence across
+the squad. A clearly labeled three-player synthetic fixture remains as a stable
+interaction benchmark; it is never presented as a live AI result.
 
 ## Run locally
 
@@ -25,19 +26,40 @@ npm run dev
 
 Open the local URL printed by the development server.
 
-The prototype works without credentials. In that mode, analysis runs through a
-deterministic evidence pipeline and answers use grounded fixture recipes. The
-page visibly identifies this as a synthetic reconstruction. To exercise the optional
-OpenAI Responses API path:
+The disclosed synthetic benchmark works without credentials. The live upload
+workflow deliberately does not: it fails closed instead of substituting
+prewritten output. To run real vision, transcription, and cross-clip linking:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Add `OPENAI_API_KEY` to `.env.local`. `OPENAI_MODEL` defaults to `gpt-5.6`.
+Add `OPENAI_API_KEY` to `.env.local`. Vision and linking default to
+`gpt-5.6-sol`; audio defaults to `gpt-4o-mini-transcribe`.
 Never expose the key to the browser or commit `.env.local`.
 
-## Demo flow
+## Live AI flow
+
+1. Export two to four matching squad POV clips, each 45 seconds or shorter.
+2. Add them to the **Live multimodal pipeline** and label each perspective.
+3. Confirm recording permission. Enable voice analysis only when everyone
+   audible opted in.
+4. Select **Analyze with OpenAI**. The browser samples eight timestamped JPEG
+   frames per clip and, when allowed, extracts a mono WAV track.
+5. `/api/analyze/clip` transcribes and visually analyzes each real source.
+   Every observation must cite a supplied frame ID.
+6. `/api/analyze/link` aligns and links the independently generated evidence,
+   then returns the squad story and Director's Cut decision list.
+7. The UI exposes OpenAI response IDs, request IDs, model names, token usage,
+   source observations, and click-to-seek timestamps. Missing credentials or
+   invalid model output remain visible failures; no fixture result is used.
+
+Raw video files remain browser-local. Only sampled frames and the optional
+consented audio excerpt are sent to the server and then to OpenAI. The routes
+set `store: false` for Responses API requests and return `Cache-Control:
+no-store`.
+
+## Synthetic benchmark flow
 
 The submission is zero-setup after the page loads: three complete synthetic POV
 recordings and opted-in squad comms are already bundled. Every visible event,
@@ -47,7 +69,7 @@ maps back to those exact files through `session.media`.
 Recommended 90-second judge flow:
 
 1. Preview any of the three **Preloaded squad inputs** at its evidence cue.
-2. Select **Analyze demo session** to replay the six-stage media-analysis trace.
+2. Select **Run disclosed synthetic benchmark** to replay the six-stage trace.
 3. Play the Director's Cut and watch it switch among the source recordings.
 4. Open Rin's top-ranked flank hold and click an evidence row to seek its exact
    source timestamp.
@@ -80,8 +102,16 @@ shared event ledger
         +-> Ask UNSEEN
 ```
 
-The current prototype separates deterministic evidence processing from model
-judgment:
+The product separates live multimodal inference from deterministic benchmark
+evidence:
+
+- `lib/unseen-openai.ts` owns live transcription, vision, structured output
+  validation, cross-POV linking, and fail-closed OpenAI errors.
+- `lib/real-analysis-types.ts` defines live upload, observation, provenance,
+  alignment, story, and edit-decision contracts.
+- `app/api/analyze/clip` and `app/api/analyze/link` are the live AI endpoints.
+- `app/components/real-analysis-workbench.tsx` performs local media extraction
+  and renders source-linked results.
 
 - `lib/unseen-fixture.ts` is the canonical three-player session fixture.
 - `lib/unseen-types.ts` defines session, evidence, moment, edit, and API contracts.
@@ -96,6 +126,20 @@ Its role is bounded to structured interpretation and concise, grounded language.
 The evidence ledger and deterministic renderer remain the source of truth.
 
 ## Demo API
+
+### `POST /api/analyze/clip`
+
+Accepts one clip's metadata, two to eight timestamped JPEG samples, and an
+optional consented WAV track. It returns a real model response trace plus
+evidence-backed observations. It returns `AI_NOT_CONFIGURED` when the server
+secret is absent.
+
+### `POST /api/analyze/link`
+
+Accepts two to four completed real clip analyses. Analyses without a non-empty
+OpenAI response ID are rejected. The result includes inferred offsets with
+confidence and basis, linked source observations, a squad recap, and an ordered
+Director's Cut.
 
 ### `GET /api/demo/session`
 
@@ -145,9 +189,11 @@ npm test
 ```
 
 The test suite verifies the production build, server-rendered product shell,
-session and provenance contracts, non-cacheable demo APIs, staged reconstruction,
-media fingerprints, audio/video tracks, source-to-shared timestamp mappings,
-reasoning artifacts, the complete benchmark Q&A set, and invalid-input behavior.
+fail-closed live configuration, multimodal image/transcription request shape,
+real response/request provenance, cross-clip source-link validation,
+non-cacheable routes, session and fixture contracts, media fingerprints,
+source-to-shared mappings, reasoning artifacts, benchmark Q&A, and invalid
+input behavior.
 
 ## Rebuilding the synthetic media
 
@@ -178,10 +224,12 @@ longer match that manifest.
 
 ## Prototype boundaries
 
-This version proves the shared-story interaction and the evidence contracts. It
-does not yet upload long recordings, run OCR or transcription over arbitrary
-games, or execute FFmpeg in the hosted request path. Those production stages are
-designed behind the same contracts and documented in `docs/AI_PIPELINE.md`.
+This version analyzes arbitrary browser-decodable short gameplay recordings.
+It samples frames rather than uploading full video and relies on model vision
+for HUD reading; it does not yet run dense frame-by-frame tracking, audio
+fingerprinting, server-side FFmpeg, persistent media storage, or final MP4
+rendering. The Director's Cut is an evidence-backed edit decision list with
+click-to-seek source playback.
 
 Production would additionally require authenticated session ownership,
 viewer-scoped responses, working grant/revoke and delete controls, encrypted
