@@ -71,9 +71,13 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/unseen-experience.tsx", projectRoot),
     "utf8",
   );
-  assert.match(experience, /PRELOADED SQUAD INPUTS/);
+  assert.match(experience, /CONSENTED MULTI-POV BENCHMARK/);
   assert.match(experience, /MEDIA → EVIDENCE/);
   assert.match(experience, /Analyze preloaded recordings/);
+  assert.match(experience, /AUTHENTIC GARENA GAMEPLAY/);
+  assert.match(experience, /DFxrTiUqpCM/);
+  assert.match(experience, /Free Fire Esports Official/);
+  assert.match(experience, /REAL FOOTAGE \/ HONEST PROTOTYPE/);
 });
 
 test("session endpoint returns a referentially valid three-player story", async () => {
