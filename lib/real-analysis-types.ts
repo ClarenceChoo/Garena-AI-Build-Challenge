@@ -176,6 +176,7 @@ export interface RealAnalysisApiError {
     code:
       | "AI_NOT_CONFIGURED"
       | "UNAUTHORIZED"
+      | "FORBIDDEN"
       | "INVALID_JSON"
       | "INVALID_REQUEST"
       | "OPENAI_ERROR"

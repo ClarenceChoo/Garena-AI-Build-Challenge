@@ -31,6 +31,54 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+.access-denied-shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(237, 28, 46, 0.15), transparent 42%),
+    #07080b;
+}
+
+.access-denied-card {
+  width: min(560px, 100%);
+  padding: clamp(28px, 6vw, 52px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 3px solid var(--unseen-red);
+  background: rgba(15, 17, 23, 0.97);
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.48);
+}
+
+.access-denied-card > span {
+  color: #ff6d79;
+  font: 800 11px/1 var(--font-geist-mono);
+  letter-spacing: 0.12em;
+}
+
+.access-denied-card h1 {
+  margin: 18px 0 12px;
+  font-size: clamp(34px, 8vw, 62px);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+}
+
+.access-denied-card p {
+  margin: 0 0 24px;
+  color: #969ca8;
+  line-height: 1.6;
+}
+
+.access-denied-card strong { color: #e3e5e9; }
+.access-denied-card a {
+  display: inline-block;
+  padding: 12px 15px;
+  background: var(--unseen-red);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 button,
 input,
 textarea,

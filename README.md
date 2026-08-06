@@ -211,8 +211,8 @@ longer match that manifest.
 
 ## Privacy and safety defaults
 
-- The hosted Site uses managed Sign in with ChatGPT and an owner-only access
-  policy by default. Anonymous visitors cannot reach the application.
+- The hosted Site uses managed Sign in with ChatGPT plus a server-side email
+  allowlist. Anonymous and non-allowlisted visitors cannot reach the product.
 - Live analysis, linking, and session-search endpoints independently require
   the authenticated Sites user headers before they can consume API credits.
 - The account indicator exposes a safe same-origin sign-out link; the

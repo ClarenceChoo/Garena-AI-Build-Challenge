@@ -9,6 +9,7 @@ const AUTH_HEADERS = Object.freeze({
   "oai-authenticated-user-id": "test-user-123",
   "oai-authenticated-user-email": "judge@example.com",
 });
+process.env.UNSEEN_ALLOWED_EMAILS = "judge@example.com";
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -49,14 +50,22 @@ async function mp4DurationSeconds(fileUrl) {
 }
 
 test("server-renders the finished UNSEEN product shell", async () => {
-  const response = await dispatch("/");
+  const anonymousResponse = await dispatch("/");
+  assert.equal(anonymousResponse.status, 307);
+  assert.match(
+    anonymousResponse.headers.get("location") ?? "",
+    /\/signin-with-chatgpt\?return_to=/,
+  );
+
+  const response = await dispatch("/", { headers: AUTH_HEADERS });
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>UNSEEN — The whole squad story<\/title>/i);
   assert.match(html, /UNSEEN/);
-  assert.match(html, /Sign in with ChatGPT/);
+  assert.match(html, /judge@example\.com/);
+  assert.match(html, /Sign out/);
   assert.match(html, /og\.png/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton|Building your site/i);
 
@@ -93,11 +102,14 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(realWorkbench, /\/api\/analyze\/link/);
   assert.match(realWorkbench, /\/api\/analyze\/ask/);
 
-  const signedInResponse = await dispatch("/", { headers: AUTH_HEADERS });
-  assert.equal(signedInResponse.status, 200);
-  const signedInHtml = await signedInResponse.text();
-  assert.match(signedInHtml, /judge@example\.com/);
-  assert.match(signedInHtml, /Sign out/);
+  const deniedResponse = await dispatch("/", {
+    headers: {
+      "oai-authenticated-user-id": "unapproved-user",
+      "oai-authenticated-user-email": "unapproved@example.com",
+    },
+  });
+  assert.equal(deniedResponse.status, 200);
+  assert.match(await deniedResponse.text(), /Access not approved/);
 });
 
 test("live analysis fails closed when the server secret is absent", async () => {
@@ -120,6 +132,19 @@ test("live analysis fails closed when the server secret is absent", async () => 
     assert.equal(unauthorizedResponse.status, 401);
     const unauthorizedPayload = await unauthorizedResponse.json();
     assert.equal(unauthorizedPayload.error.code, "UNAUTHORIZED");
+
+    const forbiddenResponse = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "oai-authenticated-user-id": "unapproved-user",
+        "oai-authenticated-user-email": "unapproved@example.com",
+      },
+      body: "{}",
+    });
+    assert.equal(forbiddenResponse.status, 403);
+    const forbiddenPayload = await forbiddenResponse.json();
+    assert.equal(forbiddenPayload.error.code, "FORBIDDEN");
 
     const response = await dispatch("/api/analyze/clip", {
       method: "POST",

@@ -48,6 +48,33 @@ export async function requireChatGPTUser(
   redirect(chatGPTSignInPath(returnTo));
 }
 
+export function isChatGPTUserAllowed(user: ChatGPTUser): boolean {
+  const allowedEmails = new Set(
+    (process.env.UNSEEN_ALLOWED_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLocaleLowerCase())
+      .filter(Boolean),
+  );
+  return allowedEmails.has(user.email.trim().toLocaleLowerCase());
+}
+
+export async function unseenApiAuthorizationError(): Promise<Response | null> {
+  const user = await getChatGPTUser();
+  if (!user) {
+    return Response.json(
+      { error: { code: "UNAUTHORIZED", message: "Sign in with ChatGPT to use UNSEEN." } },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (!isChatGPTUserAllowed(user)) {
+    return Response.json(
+      { error: { code: "FORBIDDEN", message: "This ChatGPT account is not approved for UNSEEN." } },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  return null;
+}
+
 export function chatGPTSignInPath(returnTo: string): string {
   const safeReturnTo = safeRelativeReturnPath(returnTo);
   return `${SIGN_IN_PATH}?return_to=${encodeURIComponent(safeReturnTo)}`;
