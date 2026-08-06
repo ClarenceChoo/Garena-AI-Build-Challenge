@@ -222,7 +222,7 @@ test("live clip route returns only response-backed visual and transcript evidenc
               endMs: 1500,
               category: "teamwork",
               description: "A hostile silhouette enters from the left while the player holds cover.",
-              importance: 84,
+              importance: 0.84,
               confidence: 0.94,
               evidenceFrameIds: ["clip-a-frame-01"],
               transcriptQuote: "Flank left, I have it.",
@@ -256,6 +256,7 @@ test("live clip route returns only response-backed visual and transcript evidenc
     assert.equal(payload.api.visionRequestId, "req_clip_real");
     assert.equal(payload.api.transcriptionRequestId, "req_transcription_real");
     assert.equal(payload.audioStatus, "transcribed");
+    assert.equal(payload.observations[0].importance, 84);
     assert.deepEqual(payload.observations[0].evidenceFrameIds, ["clip-a-frame-01"]);
     assert.equal(upstreamCalls.length, 2);
   } finally {
@@ -309,7 +310,7 @@ test("cross-clip route links only valid observations and exposes the real respon
               title: "The unseen warning",
               summary: "One perspective shows the push; the other reveals the warning that enabled it.",
               sharedTimeMs: 1_000,
-              importance: 91,
+              importance: 0.91,
               emotion: "tense",
               whyLinked: "Both observations show the same HUD timer and complementary action.",
               sourceLinks: [
@@ -382,6 +383,7 @@ test("cross-clip route links only valid observations and exposes the real respon
     const payload = await response.json();
     assert.equal(payload.api.real, true);
     assert.equal(payload.api.responseId, "resp_link_real");
+    assert.equal(payload.linkedMoments[0].importance, 91);
     assert.equal(payload.api.requestId, "req_link_real");
     assert.equal(payload.linkedMoments[0].sourceLinks.length, 2);
     assert.equal(payload.directorCut.length, 2);

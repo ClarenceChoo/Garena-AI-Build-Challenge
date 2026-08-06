@@ -276,6 +276,12 @@ function numberOrZero(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function normalizeImportance(value: unknown): number {
+  const score = numberOrZero(value);
+  const percentageScale = score >= 0 && score <= 1 ? score * 100 : score;
+  return Math.min(100, Math.max(0, percentageScale));
+}
+
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -459,7 +465,7 @@ function validateClipOutput(
       endMs: Math.min(request.clip.durationMs, Math.max(timestampMs, numberOrZero(item.endMs))),
       category: item.category as RealClipObservation["category"],
       description: item.description,
-      importance: Math.min(100, Math.max(0, numberOrZero(item.importance))),
+      importance: normalizeImportance(item.importance),
       confidence: Math.min(1, Math.max(0, numberOrZero(item.confidence))),
       evidenceFrameIds,
       transcriptQuote: typeof item.transcriptQuote === "string" ? item.transcriptQuote : null,
@@ -537,6 +543,7 @@ export async function analyzeRealClip(
     [
       "Analyze this actual gameplay recording from timestamped sampled frames and the optional opted-in transcript.",
       "Success means: identify only directly observable gameplay, HUD state, teamwork, mistakes, reactions, dialogue, and scene transitions; preserve source timestamps; cite one or more supplied frame IDs for every observation; avoid player identity or intent guesses; return no observation that lacks visual evidence.",
+      "Use integer importance scores from 0 to 100. Confidence remains a decimal from 0 to 1.",
       "The transcript may add dialogue context but never overrides the frames. Empty transcript means audio was not supplied.",
     ].join("\n"),
     [{
@@ -607,7 +614,7 @@ function validateLinkedOutput(raw: unknown, clips: RealClipAnalysis[]): Omit<Rea
     if (sourceLinks.length === 0) throw new UnseenOpenAIError("A linked moment cited no valid source observations.", "OPENAI_INVALID_OUTPUT");
     return {
       id: String(item.id ?? ""), title: String(item.title ?? ""), summary: String(item.summary ?? ""),
-      sharedTimeMs: numberOrZero(item.sharedTimeMs), importance: Math.min(100, Math.max(0, numberOrZero(item.importance))),
+      sharedTimeMs: numberOrZero(item.sharedTimeMs), importance: normalizeImportance(item.importance),
       emotion: String(item.emotion ?? ""), whyLinked: String(item.whyLinked ?? ""), sourceLinks,
     } satisfies LinkedSquadMoment;
   });
@@ -653,6 +660,7 @@ export async function linkRealClips(value: unknown, config: RealOpenAIConfig): P
     [
       "Reconstruct one squad session from independently analyzed POV clips.",
       "Success means: align clips only when timers, repeated HUD events, matching actions, or transcript/audio cues support it; cite exact clip and observation IDs; explain why evidence belongs to the same moment; preserve low confidence where alignment is uncertain; include meaningful single-POV moments when teammates likely missed them; create a concise director cut that switches perspective only when it adds information; produce personalized whatYouMissed entries only when another clip contains evidence absent from the viewer clip.",
+      "Use integer importance scores from 0 to 100. Alignment confidence remains a decimal from 0 to 1.",
       "Never invent a player, event, timestamp, or relationship absent from the supplied analyses. Use the first clip as offset 0. If clips do not overlap, keep alignment confidence low and tell that truth in the recap.",
     ].join("\n"),
     JSON.stringify({ clips: packet }),
