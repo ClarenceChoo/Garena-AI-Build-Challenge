@@ -83,8 +83,8 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
   {
     id: "setup",
     index: "01",
-    startSeconds: 21_957,
-    endSeconds: 21_970,
+    startSeconds: 21_950,
+    endSeconds: 21_980,
     title: "Match-point setup",
     beat: "6:05:57 · GAME 3 / ROUND 10",
     summary:
@@ -99,8 +99,8 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
   {
     id: "triple",
     index: "02",
-    startSeconds: 21_980,
-    endSeconds: 21_989,
+    startSeconds: 21_970,
+    endSeconds: 22_000,
     title: "The clutch turns",
     beat: "6:06:20 · COMBAT INFLECTION",
     summary:
@@ -115,8 +115,8 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
   {
     id: "reaction",
     index: "03",
-    startSeconds: 21_989,
-    endSeconds: 22_004,
+    startSeconds: 21_985,
+    endSeconds: 22_015,
     title: "The payoff lands",
     beat: "6:06:29 · LIVE TEAM REACTION",
     summary:
@@ -285,7 +285,10 @@ function OfficialGarenaFootage() {
                 onClick={() => selectClip(clip.id)}
               >
                 <span>{clip.index}</span>
-                <span><strong>{clip.title}</strong><small>{clip.beat}</small></span>
+                <span>
+                  <strong>{clip.title}</strong>
+                  <small>{clip.beat} · {clip.endSeconds - clip.startSeconds} SEC</small>
+                </span>
               </button>
             ))}
           </div>
