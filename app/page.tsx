@@ -1,9 +1,9 @@
 import { UnseenExperience } from "./components/unseen-experience";
 import {
   chatGPTSignInPath,
-  chatGPTSignOutPath,
   isChatGPTUserAllowed,
   requireChatGPTUser,
+  signOutPathForUser,
 } from "./chatgpt-auth";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export default async function Home() {
             <strong>{user.email}</strong> is signed in, but this account is not on
             the UNSEEN tester allowlist.
           </p>
-          <a href={chatGPTSignOutPath("/")}>Sign out and use another account</a>
+          <a href={signOutPathForUser(user, "/")}>Sign out and use another account</a>
         </div>
       </main>
     );
@@ -29,7 +29,7 @@ export default async function Home() {
     <UnseenExperience
       viewer={{ displayName: user.displayName, email: user.email }}
       signInPath={chatGPTSignInPath("/")}
-      signOutPath={chatGPTSignOutPath("/")}
+      signOutPath={signOutPathForUser(user, "/")}
     />
   );
 }

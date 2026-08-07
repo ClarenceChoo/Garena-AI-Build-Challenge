@@ -41,6 +41,27 @@ Add `OPENAI_API_KEY` to `.env.local`. Vision and linking default to
 `gpt-5.6-sol`; audio defaults to `gpt-4o-mini-transcribe`.
 Never expose the key to the browser or commit `.env.local`.
 
+## GitHub automatic deployment
+
+`.github/workflows/deploy.yml` validates every push to `main` and can deploy the
+production build to Cloudflare Workers. The existing `chatgpt.site` deployment
+continues to be managed by OpenAI Sites; Sites does not currently expose a
+GitHub Actions deployment hook.
+
+Add these GitHub repository secrets under **Settings → Secrets and variables →
+Actions** to activate the deploy step:
+
+- `CLOUDFLARE_API_TOKEN` — a Workers Scripts edit token;
+- `CLOUDFLARE_ACCOUNT_ID` — the target Cloudflare account;
+- `OPENAI_API_KEY` — the server-only key used by the live analysis routes; and
+- `UNSEEN_ALLOWED_EMAILS` — the comma-separated tester allowlist.
+
+The Cloudflare Worker should be protected with Cloudflare Access. UNSEEN accepts
+Cloudflare Access's authenticated-email header and still applies the same
+`UNSEEN_ALLOWED_EMAILS` application allowlist. Without the four repository
+secrets, GitHub Actions still runs the full validation suite but safely skips
+the production deploy step.
+
 ## Live AI flow
 
 1. Export two to four matching squad POV clips, each up to 3 minutes long.

@@ -121,6 +121,24 @@ test("server-renders the finished UNSEEN product shell", async () => {
   });
   assert.equal(deniedResponse.status, 200);
   assert.match(await deniedResponse.text(), /Access not approved/);
+
+  const previousAuthProvider = process.env.UNSEEN_AUTH_PROVIDER;
+  process.env.UNSEEN_AUTH_PROVIDER = "cloudflare_access";
+  try {
+    const cloudflareAccessResponse = await dispatch("/", {
+      headers: {
+        "cf-access-authenticated-user-email": "judge@example.com",
+        "cf-access-jwt-assertion": "test-access-jwt",
+      },
+    });
+    assert.equal(cloudflareAccessResponse.status, 200);
+    const cloudflareAccessHtml = await cloudflareAccessResponse.text();
+    assert.match(cloudflareAccessHtml, /judge@example\.com/);
+    assert.match(cloudflareAccessHtml, /\/cdn-cgi\/access\/logout/);
+  } finally {
+    if (previousAuthProvider === undefined) delete process.env.UNSEEN_AUTH_PROVIDER;
+    else process.env.UNSEEN_AUTH_PROVIDER = previousAuthProvider;
+  }
 });
 
 test("live analysis fails closed when the server secret is absent", async () => {
