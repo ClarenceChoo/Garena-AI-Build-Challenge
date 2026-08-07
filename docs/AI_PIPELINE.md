@@ -78,11 +78,26 @@ The request uses the Responses API `text.format` JSON-schema form with `strict: 
 
 The default model is `gpt-5.6`, following current OpenAI guidance for new projects and Structured Outputs. See the official [Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs) and [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create).
 
-## Real pipeline versus challenge fixture
+## Real uploads, official footage, and the interaction simulator
 
-The current `DEMO_SESSION` is a wholly synthetic, curated artifact for reliable judging. Its player names, media, quotes, timestamps, anchors, evidence, incidents, consent records, and candidate moments are fictional; no real player recording or voice data is bundled or exposed. `createPipelineInputFromDemoSession` transforms it and runs the same deterministic reasoning functions used for real data.
+The browser upload path accepts two to four real clips up to three minutes each,
+extracts sixteen timestamped frames and optional consented audio, sends those
+samples to the live OpenAI routes, and cross-links only response-backed
+observations. Raw video remains browser-local.
 
-It does **not** claim that this repository currently decodes arbitrary gameplay videos. In a production or post-challenge implementation, upstream workers would replace fixture fields with:
+The zero-upload showcase embeds three real 30-second scenes from the verified
+Free Fire Esports Official channel. They are different broadcast scenes around
+one real clutch, not synchronized private squad recordings, and the UI says so.
+
+The separate `DEMO_SESSION` is a wholly synthetic, curated artifact used only
+to demonstrate features a public broadcast cannot expose: synchronized private
+POVs, opted-in private comms, per-player reveals, and grounded squad search. Its
+player names, media, quotes, timestamps, anchors, evidence, incidents, consent
+records, and candidate moments are fictional. `createPipelineInputFromDemoSession`
+transforms it and runs the same deterministic reasoning functions used for real
+data.
+
+In production, upstream workers would extend the browser samples with:
 
 - canonical media proxies, sparse frames, dense event windows, and waveforms;
 - OCR/timer observations and audio fingerprints;

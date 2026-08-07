@@ -1,11 +1,11 @@
 export const REAL_ANALYSIS_LIMITS = Object.freeze({
   minimumClips: 2,
   maximumClips: 4,
-  maximumDurationMs: 45_000,
-  maximumFileBytes: 120 * 1024 * 1024,
-  framesPerClip: 8,
+  maximumDurationMs: 3 * 60_000,
+  maximumFileBytes: 250 * 1024 * 1024,
+  framesPerClip: 16,
   maximumFrameDataUrlLength: 900_000,
-  maximumAudioBase64Length: 2_400_000,
+  maximumAudioBase64Length: 8_500_000,
 });
 
 export interface SampledFrame {

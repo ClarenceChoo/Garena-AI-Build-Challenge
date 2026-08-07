@@ -14,7 +14,6 @@ import type {
   DemoSessionResponse,
   Participant,
   ParticipantId,
-  PreloadedRecording,
   ProcessDemoResponse,
   SessionEvidence,
   UnseenSession,
@@ -71,6 +70,7 @@ interface OfficialGarenaClip {
   index: string;
   startSeconds: number;
   endSeconds: number;
+  sourceLabel: string;
   title: string;
   beat: string;
   summary: string;
@@ -85,6 +85,7 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
     index: "01",
     startSeconds: 21_950,
     endSeconds: 21_980,
+    sourceLabel: "BROADCAST CONTEXT",
     title: "Match-point setup",
     beat: "6:05:57 · GAME 3 / ROUND 10",
     summary:
@@ -101,6 +102,7 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
     index: "02",
     startSeconds: 21_970,
     endSeconds: 22_000,
+    sourceLabel: "AG.DEW GAMEPLAY POV",
     title: "The clutch turns",
     beat: "6:06:20 · COMBAT INFLECTION",
     summary:
@@ -117,6 +119,7 @@ const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
     index: "03",
     startSeconds: 21_985,
     endSeconds: 22_015,
+    sourceLabel: "ALL GAMERS TEAM CAM",
     title: "The payoff lands",
     beat: "6:06:29 · LIVE TEAM REACTION",
     summary:
@@ -172,48 +175,6 @@ async function parseErrorResponse(response: Response, fallback: string) {
   return errorMessage(payload, fallback);
 }
 
-function PreloadedRecordingCard({
-  recording,
-  participant,
-}: {
-  recording: PreloadedRecording;
-  participant: Participant;
-}) {
-  function cuePreview(video: HTMLVideoElement) {
-    video.currentTime = Math.min(
-      Math.max(0, recording.preloadCueMs / 1000),
-      Math.max(0, video.duration - 0.3),
-    );
-  }
-
-  return (
-    <article className={`input-recording input-${participant.id}`}>
-      <div className="input-video-wrap">
-        <video
-          src={recording.assetUrl}
-          poster={`/demo/${participant.id}-poster.jpg`}
-          preload="metadata"
-          playsInline
-          muted
-          controls
-          onLoadedMetadata={(event) => cuePreview(event.currentTarget)}
-          aria-label={`${participant.displayName} preloaded synthetic source recording`}
-        />
-        <span className="input-ready"><i /> PRELOADED</span>
-        <span className="input-cue">CUE {formatTimestamp(recording.preloadCueMs)}</span>
-      </div>
-      <div className="input-meta">
-        <span className={`avatar avatar-${participant.accent}`}>{participant.avatarInitials}<i /></span>
-        <div>
-          <strong>{recording.label}</strong>
-          <span>{formatDuration(recording.durationMs)} · gameplay + opted-in voice</span>
-        </div>
-        <code>{recording.sha256.slice(0, 8)}</code>
-      </div>
-    </article>
-  );
-}
-
 function OfficialGarenaFootage() {
   const [activeClipId, setActiveClipId] = useState<OfficialGarenaClip["id"]>("triple");
   const [scanState, setScanState] = useState<OfficialScanState>("idle");
@@ -227,7 +188,8 @@ function OfficialGarenaFootage() {
       : scanState === "running"
         ? Math.max(1, Math.ceil((scanProgress / 100) * activeClip.signals.length))
         : 0;
-  const embedUrl = `https://www.youtube-nocookie.com/embed/${OFFICIAL_GARENA_VIDEO_ID}?start=${activeClip.startSeconds}&end=${activeClip.endSeconds}&rel=0&modestbranding=1&playsinline=1`;
+  const embedUrl = (clip: OfficialGarenaClip) =>
+    `https://www.youtube-nocookie.com/embed/${OFFICIAL_GARENA_VIDEO_ID}?start=${clip.startSeconds}&end=${clip.endSeconds}&rel=0&modestbranding=1&playsinline=1`;
 
   function selectClip(id: OfficialGarenaClip["id"]) {
     setActiveClipId(id);
@@ -250,8 +212,8 @@ function OfficialGarenaFootage() {
     <section className="official-footage" aria-labelledby="official-footage-title">
       <div className="official-footage-heading">
         <div>
-          <span className="eyebrow">01 · AUTHENTIC GARENA GAMEPLAY</span>
-          <h2 id="official-footage-title">A real Free Fire clutch. Read beat by beat.</h2>
+          <span className="eyebrow">01 · PRELOADED REAL GARENA FOOTAGE</span>
+          <h2 id="official-footage-title">Three authentic Free Fire scenes. One real-match story.</h2>
         </div>
         <div className="official-source-lockup">
           <span><i /> OFFICIAL SOURCE</span>
@@ -262,34 +224,30 @@ function OfficialGarenaFootage() {
 
       <div className="official-footage-grid">
         <div className="official-player-column">
-          <div className="official-player-wrap">
-            <iframe
-              key={activeClip.id}
-              src={embedUrl}
-              title={`Official Free Fire gameplay — ${activeClip.title}`}
-              loading="lazy"
-              allow="accelerometer; encrypted-media; picture-in-picture"
-              allowFullScreen
-            />
-            <span className="official-player-badge"><i /> REAL FREE FIRE BROADCAST</span>
-            <span className="official-player-time">{activeClip.beat}</span>
-          </div>
-
-          <div className="official-clip-selector" role="group" aria-label="Select official Free Fire clip">
+          <div className="official-preloaded-grid" role="group" aria-label="Preloaded official Free Fire clips">
             {OFFICIAL_GARENA_CLIPS.map((clip) => (
-              <button
-                key={clip.id}
-                type="button"
-                className={activeClip.id === clip.id ? "active" : ""}
-                aria-pressed={activeClip.id === clip.id}
-                onClick={() => selectClip(clip.id)}
-              >
-                <span>{clip.index}</span>
-                <span>
+              <article className={activeClip.id === clip.id ? "active" : ""} key={clip.id}>
+                <div className="official-player-wrap">
+                  <iframe
+                    src={embedUrl(clip)}
+                    title={`Official Free Fire gameplay — ${clip.title}`}
+                    loading="lazy"
+                    allow="accelerometer; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                  />
+                  <span className="official-player-badge"><i /> REAL GARENA FOOTAGE</span>
+                  <span className="official-player-time">{clip.endSeconds - clip.startSeconds} SEC</span>
+                </div>
+                <button
+                  type="button"
+                  aria-pressed={activeClip.id === clip.id}
+                  onClick={() => selectClip(clip.id)}
+                >
+                  <span>INPUT {clip.index} · {clip.sourceLabel}</span>
                   <strong>{clip.title}</strong>
-                  <small>{clip.beat} · {clip.endSeconds - clip.startSeconds} SEC</small>
-                </span>
-              </button>
+                  <small>{clip.beat}</small>
+                </button>
+              </article>
             ))}
           </div>
         </div>
@@ -309,10 +267,10 @@ function OfficialGarenaFootage() {
             disabled={scanState === "running"}
           >
             {scanState === "running"
-              ? `Scanning official clip · ${scanProgress}%`
+              ? `Analyzing real clip · ${scanProgress}%`
               : scanState === "complete"
                 ? "Replay evidence scan"
-                : "Replay verified observations"}
+                : "Analyze selected real clip"}
           </button>
 
           <div className="official-scan-track" aria-hidden="true">
@@ -329,11 +287,11 @@ function OfficialGarenaFootage() {
           </div>
 
           <div className="official-disclosure">
-            <strong>REAL FOOTAGE / HONEST PROTOTYPE</strong>
+            <strong>REAL FOOTAGE / BROADCAST-LIMITED DEMO</strong>
             <p>
-              Playback stays embedded from Garena’s verified channel. For submission reliability,
-              the scan replays observations verified against these exact broadcast frames; it does
-              not claim access to private player comms or missing squad POVs.
+              All three inputs are embedded from Garena’s verified Free Fire Esports channel and
+              come from the same official final. They demonstrate cross-scene reconstruction, not
+              synchronized private squad recordings or private comms that the broadcast never published.
             </p>
             <a
               href={`https://www.youtube.com/watch?v=${OFFICIAL_GARENA_VIDEO_ID}&t=${activeClip.startSeconds}s`}
@@ -370,7 +328,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
   const [processState, setProcessState] = useState<ProcessState>("idle");
   const [progress, setProgress] = useState(0);
   const [processMessage, setProcessMessage] = useState(
-    "Loading the consented session fixture…",
+    "Loading the multi-POV interaction simulator…",
   );
   const [analysisStatus, setAnalysisStatus] = useState<
     ProcessDemoResponse["mediaAnalysis"] | null
@@ -399,7 +357,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
         setSession(payload.session);
         setActivePerspective(payload.session.focusParticipantId);
         setProcessMessage(
-          `${payload.session.media.recordings.length} preloaded recordings are ready to analyze.`,
+          `${payload.session.media.recordings.length} simulated squad perspectives are ready.`,
         );
       } catch (error) {
         if (cancelled) return;
@@ -546,7 +504,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
     const video = videoRef.current;
     if (!video || video.readyState < 1) return;
     applySeek(video);
-    // applySeek intentionally follows the currently selected synthetic source.
+    // applySeek intentionally follows the currently selected simulated source.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activePerspective, seekMs]);
 
@@ -648,7 +606,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
     setProcessState("running");
     setProgress(0);
     setAnalysisStatus(null);
-    setProcessMessage("Verifying the three preloaded media fingerprints…");
+    setProcessMessage("Preparing the three simulated squad perspectives…");
     setIsPlaying(false);
 
     try {
@@ -895,7 +853,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
             <span>
               {session
                 ? `${session.game} · ${formatDuration(session.durationMs)} · ${session.result} ${session.score}`
-                : "Consent-gated fixture"}
+                : "Interaction simulator"}
             </span>
           </div>
         </div>
@@ -924,8 +882,8 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
       </header>
 
       <div className="fixture-banner" role="note">
-        <span>LIVE AI PIPELINE</span>
-        The upload workbench runs real OpenAI vision, transcription, and cross-POV linking. The lower fixture remains a clearly disclosed benchmark only.
+        <span>REAL INPUTS + HONEST SIMULATION</span>
+        Uploads run live OpenAI analysis, and the preloaded Free Fire clips below are real Garena footage. The later squad-only features remain clearly labeled simulation because the broadcast does not publish private synchronized POVs or comms.
       </div>
 
       <RealAnalysisWorkbench />
@@ -936,36 +894,24 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
         <section className="media-intake" aria-labelledby="media-intake-title">
           <div className="media-intake-heading">
             <div>
-              <span className="eyebrow">02 · CONSENTED MULTI-POV BENCHMARK</span>
-              <h2 id="media-intake-title">Three POVs. One reconstructed squad story.</h2>
+              <span className="eyebrow">02 · FULL MULTI-POV INTERACTION SIMULATOR</span>
+              <h2 id="media-intake-title">Try the squad-only features a broadcast cannot expose.</h2>
             </div>
             <p>
-              Official broadcasts do not expose synchronized player recordings and
-              private comms. This disclosed fixture safely demonstrates the complete product loop.
+              This section is deliberately simulated so you can test perspective switching,
+              private opted-in comms, personalized reveals, and evidence-grounded search.
             </p>
           </div>
-          <div className="input-recordings">
-            {session.media.recordings.map((recording) => {
-              const source = session.sources.find(
-                (candidate) => candidate.id === recording.sourceId,
-              );
-              const participant = source
-                ? participantById.get(source.participantId)
-                : undefined;
-              return participant ? (
-                <PreloadedRecordingCard
-                  key={recording.sourceId}
-                  recording={recording}
-                  participant={participant}
-                />
-              ) : null;
-            })}
+          <div className="simulation-capabilities">
+            <article><span>01</span><strong>Synchronized squad POVs</strong><p>Switch among three aligned player views on one shared clock.</p></article>
+            <article><span>02</span><strong>Opted-in private comms</strong><p>Demonstrate transcript and reaction features unavailable in a public broadcast.</p></article>
+            <article><span>03</span><strong>Personalized story output</strong><p>Preview Director’s Cut, What You Missed, and cited session search.</p></article>
           </div>
           <div className="media-proof-strip">
-            <span><i /> 3 media fingerprints verified</span>
-            <span><i /> 6 alignment anchors embedded</span>
-            <span><i /> {session.media.traces.length} evidence observations mapped</span>
-            <span><i /> Synthetic benchmark · not a live AI result</span>
+            <span><i /> Clearly labeled simulated inputs</span>
+            <span><i /> 6 alignment anchors</span>
+            <span><i /> {session.media.traces.length} evidence observations</span>
+            <span><i /> No claim of real player data</span>
           </div>
           <button
             className="reconstruct-button"
@@ -975,10 +921,10 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
           >
             <span className="button-spark" aria-hidden="true">✦</span>
             {processState === "running"
-              ? "Running benchmark…"
+              ? "Launching simulator…"
               : processState === "complete"
-                ? "Replay synthetic benchmark"
-                : "Run disclosed synthetic benchmark"}
+                ? "Replay interaction simulator"
+                : "Launch multi-POV simulator"}
           </button>
         </section>
       )}
@@ -1086,9 +1032,9 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
       {!reasoning ? (
         <section className="locked-reconstruction" aria-labelledby="locked-title">
           <span className="locked-orbit" aria-hidden="true"><i /><i /><i /></span>
-          <span className="eyebrow">RESULTS GATED</span>
+          <span className="eyebrow">SIMULATED SQUAD EXPERIENCE</span>
           <h2 id="locked-title">
-            {processState === "running" ? "Analyzing the preloaded squad footage…" : "The footage is loaded. Reveal what nobody saw."}
+            {processState === "running" ? "Building the simulated squad story…" : "Preview what a full squad upload unlocks."}
           </h2>
           <p>
             One click replays the media analysis trace: fingerprint verification,
@@ -1100,7 +1046,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
             onClick={() => void runReconstruction()}
             disabled={!session || processState === "running"}
           >
-            {processState === "running" ? `${progress}% complete` : "Analyze preloaded recordings"}
+            {processState === "running" ? `${progress}% complete` : "Launch interaction simulator"}
           </button>
         </section>
       ) : (
@@ -1115,7 +1061,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
                       ? `EDIT BEAT ${activeClipIndex + 1} / ${reasoning.editPlan.clips.length}`
                       : `EVIDENCE REVEAL`}
                   </span>
-                  <span className="sync-pill">SYNTHETIC CLIP · SYNCED</span>
+                  <span className="sync-pill">SIMULATED POV · SYNCED</span>
                 </div>
 
                 <div className="game-world video-world">
@@ -1133,10 +1079,10 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
                     onEnded={() =>
                       mode === "director" ? advanceDirectorCut() : setIsPlaying(false)
                     }
-                    aria-label={`${activeParticipant?.displayName ?? activePerspective} synthetic challenge gameplay clip`}
+                    aria-label={`${activeParticipant?.displayName ?? activePerspective} simulated product gameplay clip`}
                   />
                   <div className="video-vignette" aria-hidden="true" />
-                  <div className="synthetic-watermark">SYNTHETIC CHALLENGE FOOTAGE</div>
+                  <div className="synthetic-watermark">SIMULATED PRODUCT FOOTAGE</div>
                   <button
                     className={`play-control ${isPlaying ? "playing" : ""}`}
                     type="button"
@@ -1339,13 +1285,13 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
           <span className="ask-orbit" aria-hidden="true"><i /><i /><i /></span>
           <span className="eyebrow">CONVERSATIONAL SESSION SEARCH</span>
           <h2 id="ask-title">Ask the game what<br />you never saw.</h2>
-          <p>Answers cite the synchronized preloaded recordings. Every citation switches POV and seeks the supporting source frame.</p>
+          <p>In the simulator, answers cite synchronized mock squad recordings. Real uploads use only the frames and opted-in audio supplied by your team.</p>
           <div className="privacy-note"><span aria-hidden="true">◈</span><p><strong>Consent-aware by design</strong>Gameplay, voice, analysis, and squad sharing grants are checked before evidence enters the story.</p></div>
         </div>
 
         <div className="chat-card">
           <div className="chat-header">
-            <div><span className="ai-presence" aria-hidden="true">U</span><p><strong>Ask UNSEEN</strong><small>{reasoning ? `${reasoning.version} · fixture evidence` : "Available after reconstruction"}</small></p></div>
+            <div><span className="ai-presence" aria-hidden="true">U</span><p><strong>Ask UNSEEN</strong><small>{reasoning ? `${reasoning.version} · simulated evidence` : "Available after simulation"}</small></p></div>
             <span className="online-status"><i /> {reasoning ? "READY" : "LOCKED"}</span>
           </div>
 
@@ -1394,7 +1340,7 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
               type="text"
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder={reasoning ? "Ask what happened in this session…" : "Analyze the preloaded session to unlock search"}
+              placeholder={reasoning ? "Ask what happened in this session…" : "Launch the simulator to unlock search"}
               autoComplete="off"
               maxLength={280}
               disabled={isAsking || !reasoning}
@@ -1410,14 +1356,14 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
               <button type="button" onClick={() => setChatError("")}>Dismiss</button>
             </div>
           )}
-          <p className="chat-disclaimer">Preloaded synthetic media · grounded evidence only · explicit abstention when support is insufficient.</p>
+          <p className="chat-disclaimer">Simulated squad media · grounded evidence only · explicit abstention when support is insufficient.</p>
         </div>
       </section>
 
       <footer className="unseen-footer">
         <a className="unseen-brand footer-brand" href="#experience"><span className="unseen-mark" aria-hidden="true"><i /><i /><i /></span><span>UNSEEN</span></a>
         <p>Every perspective tells part of the story.</p>
-        <span>SYNTHETIC AI BUILD CHALLENGE PROTOTYPE · 2026</span>
+        <span>GARENA AI BUILD CHALLENGE PROTOTYPE · 2026</span>
       </footer>
     </main>
   );

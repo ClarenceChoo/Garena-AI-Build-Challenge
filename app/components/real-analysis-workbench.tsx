@@ -36,6 +36,9 @@ interface LiveBackendStatus {
   scriptedFallback: false;
 }
 
+const MAXIMUM_CLIP_MINUTES = REAL_ANALYSIS_LIMITS.maximumDurationMs / 60_000;
+const MAXIMUM_FILE_MEGABYTES = REAL_ANALYSIS_LIMITS.maximumFileBytes / 1024 / 1024;
+
 function formatMs(value: number): string {
   const totalSeconds = Math.max(0, Math.floor(value / 1_000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -268,7 +271,7 @@ export function RealAnalysisWorkbench() {
     for (const file of accepted) {
       if (file.size > REAL_ANALYSIS_LIMITS.maximumFileBytes) {
         setRunState("error");
-        setRunMessage(`${file.name} is larger than 120 MB.`);
+        setRunMessage(`${file.name} is larger than ${MAXIMUM_FILE_MEGABYTES} MB.`);
         continue;
       }
       const url = URL.createObjectURL(file);
@@ -282,7 +285,9 @@ export function RealAnalysisWorkbench() {
           playerLabel: cleanPlayerLabel(file.name, index),
           durationMs,
           status: durationMs <= REAL_ANALYSIS_LIMITS.maximumDurationMs ? "ready" : "error",
-          statusText: durationMs <= REAL_ANALYSIS_LIMITS.maximumDurationMs ? "Ready to sample" : "Trim to 45 seconds",
+          statusText: durationMs <= REAL_ANALYSIS_LIMITS.maximumDurationMs
+            ? `Ready to sample ${REAL_ANALYSIS_LIMITS.framesPerClip} frames`
+            : `Trim to ${MAXIMUM_CLIP_MINUTES} minutes`,
           analysis: null,
         });
       } catch {
@@ -321,7 +326,10 @@ export function RealAnalysisWorkbench() {
       for (let index = 0; index < clips.length; index += 1) {
         const clip = clips[index];
         setRunMessage(`Extracting timestamped evidence from ${clip.playerLabel} (${index + 1}/${clips.length})…`);
-        updateClip(clip.id, { status: "extracting", statusText: "Sampling 8 real frames" });
+        updateClip(clip.id, {
+          status: "extracting",
+          statusText: `Sampling ${REAL_ANALYSIS_LIMITS.framesPerClip} real frames`,
+        });
         const frames = await extractFrames(clip);
         let audioBase64: string | null = null;
         if (voiceConsent) {
@@ -488,7 +496,9 @@ export function RealAnalysisWorkbench() {
           <button className="real-add-source" type="button" onClick={() => inputRef.current?.click()}>
             <span>+</span>
             <strong>Add real gameplay clips</strong>
-            <small>MP4, MOV, or WebM · max 45 sec / 120 MB each</small>
+            <small>
+              MP4, MOV, or WebM · max {MAXIMUM_CLIP_MINUTES} min / {MAXIMUM_FILE_MEGABYTES} MB each
+            </small>
           </button>
         )}
         <input

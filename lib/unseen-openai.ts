@@ -486,7 +486,9 @@ export function validateAnalyzeClipRequest(value: unknown): AnalyzeClipRequest {
     throw new TypeError("clip metadata is invalid.");
   }
   if (clip.durationMs <= 0 || clip.durationMs > REAL_ANALYSIS_LIMITS.maximumDurationMs) {
-    throw new TypeError("Each clip must be 45 seconds or shorter.");
+    throw new TypeError(
+      `Each clip must be ${REAL_ANALYSIS_LIMITS.maximumDurationMs / 60_000} minutes or shorter.`,
+    );
   }
   if (value.frames.length < 2 || value.frames.length > REAL_ANALYSIS_LIMITS.framesPerClip) {
     throw new TypeError(`Each clip must include 2-${REAL_ANALYSIS_LIMITS.framesPerClip} sampled frames.`);

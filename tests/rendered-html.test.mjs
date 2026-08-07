@@ -85,13 +85,20 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/unseen-experience.tsx", projectRoot),
     "utf8",
   );
-  assert.match(experience, /CONSENTED MULTI-POV BENCHMARK/);
+  assert.match(experience, /REAL INPUTS \+ HONEST SIMULATION/);
   assert.match(experience, /MEDIA → EVIDENCE/);
-  assert.match(experience, /Analyze preloaded recordings/);
-  assert.match(experience, /AUTHENTIC GARENA GAMEPLAY/);
+  assert.match(experience, /PRELOADED REAL GARENA FOOTAGE/);
+  assert.match(experience, /FULL MULTI-POV INTERACTION SIMULATOR/);
+  assert.match(experience, /Launch interaction simulator/);
+  assert.match(experience, /SIMULATED PRODUCT FOOTAGE/);
   assert.match(experience, /DFxrTiUqpCM/);
   assert.match(experience, /Free Fire Esports Official/);
-  assert.match(experience, /REAL FOOTAGE \/ HONEST PROTOTYPE/);
+  assert.match(experience, /REAL FOOTAGE \/ BROADCAST-LIMITED DEMO/);
+  assert.equal(
+    (html.match(/youtube-nocookie\.com\/embed\/DFxrTiUqpCM/g) ?? []).length,
+    3,
+    "the zero-upload demo should render three real official Free Fire clips",
+  );
   const realWorkbench = await readFile(
     new URL("app/components/real-analysis-workbench.tsx", projectRoot),
     "utf8",
@@ -101,6 +108,10 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(realWorkbench, /\/api\/analyze\/clip/);
   assert.match(realWorkbench, /\/api\/analyze\/link/);
   assert.match(realWorkbench, /\/api\/analyze\/ask/);
+  assert.match(realWorkbench, /MAXIMUM_CLIP_MINUTES/);
+  const realLimits = await readFile(new URL("lib/real-analysis-types.ts", projectRoot), "utf8");
+  assert.match(realLimits, /maximumDurationMs: 3 \* 60_000/);
+  assert.match(realLimits, /framesPerClip: 16/);
 
   const deniedResponse = await dispatch("/", {
     headers: {
@@ -186,7 +197,39 @@ test("live analysis fails closed when the server secret is absent", async () => 
   }
 });
 
-test("live clip route returns only response-backed visual and transcript evidence", { concurrency: false }, async () => {
+test("live clip route rejects recordings longer than three minutes", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  globalThis.fetch = async () => {
+    throw new Error("OpenAI must not be called for an invalid clip.");
+  };
+  try {
+    const response = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clip: { id: "clip-too-long", name: "full-match.mp4", playerLabel: "Player A", durationMs: 180_001 },
+        frames: [
+          { id: "frame-01", timestampMs: 10_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
+          { id: "frame-02", timestampMs: 170_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
+        ],
+        audio: null,
+        voiceConsent: false,
+      }),
+    });
+    assert.equal(response.status, 400);
+    const payload = await response.json();
+    assert.equal(payload.error.code, "INVALID_REQUEST");
+    assert.match(payload.error.message, /3 minutes or shorter/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("live clip route accepts a two-minute clip with sixteen sampled frames", { concurrency: false }, async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
   const upstreamCalls = [];
@@ -240,11 +283,14 @@ test("live clip route returns only response-backed visual and transcript evidenc
       method: "POST",
       headers: { ...AUTH_HEADERS, "content-type": "application/json" },
       body: JSON.stringify({
-        clip: { id: "clip-a", name: "garena-pov-a.mp4", playerLabel: "Player A", durationMs: 2_000 },
-        frames: [
-          { id: "clip-a-frame-01", timestampMs: 500, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
-          { id: "clip-a-frame-02", timestampMs: 1_500, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2 },
-        ],
+        clip: { id: "clip-a", name: "garena-pov-a.mp4", playerLabel: "Player A", durationMs: 120_000 },
+        frames: Array.from({ length: 16 }, (_, index) => ({
+          id: `clip-a-frame-${String(index + 1).padStart(2, "0")}`,
+          timestampMs: 3_750 + index * 7_500,
+          imageDataUrl: "data:image/jpeg;base64,AA==",
+          width: 2,
+          height: 2,
+        })),
         audio: { mimeType: "audio/wav", dataBase64: "UklGRg==" },
         voiceConsent: true,
       }),

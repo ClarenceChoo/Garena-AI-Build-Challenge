@@ -12,8 +12,10 @@ This repository is the judge-facing proof of concept for the Garena AI Build
 Challenge. Its primary workflow accepts two to four real local recordings,
 extracts timestamped frames and optional opted-in audio in the browser, analyzes
 each POV with OpenAI, and runs a second model pass that links evidence across
-the squad. A clearly labeled three-player synthetic fixture remains as a stable
-interaction benchmark; it is never presented as a live AI result.
+the squad. Three preloaded real-footage clips from Garena's verified Free Fire
+Esports channel provide a zero-upload demonstration. A separate, clearly
+labeled three-player simulation remains only for private squad features that an
+official broadcast cannot expose, such as synchronized personal POVs and comms.
 
 ## Run locally
 
@@ -26,7 +28,8 @@ npm run dev
 
 Open the local URL printed by the development server.
 
-The disclosed synthetic benchmark works without credentials. The live upload
+The preloaded official-footage demo and disclosed interaction simulator work
+without credentials. The live upload
 workflow deliberately does not: it fails closed instead of substituting
 prewritten output. To run real vision, transcription, and cross-clip linking:
 
@@ -40,11 +43,11 @@ Never expose the key to the browser or commit `.env.local`.
 
 ## Live AI flow
 
-1. Export two to four matching squad POV clips, each 45 seconds or shorter.
+1. Export two to four matching squad POV clips, each up to 3 minutes long.
 2. Add them to the **Live multimodal pipeline** and label each perspective.
 3. Confirm recording permission. Enable voice analysis only when everyone
    audible opted in.
-4. Select **Analyze with OpenAI**. The browser samples eight timestamped JPEG
+4. Select **Analyze with OpenAI**. The browser samples sixteen timestamped JPEG
    frames per clip and, when allowed, extracts a mono WAV track.
 5. `/api/analyze/clip` transcribes and visually analyzes each real source.
    Every observation must cite a supplied frame ID.
@@ -59,31 +62,38 @@ consented audio excerpt are sent to the server and then to OpenAI. The routes
 set `store: false` for Responses API requests and return `Cache-Control:
 no-store`.
 
-## Synthetic benchmark flow
+## Preloaded real-footage demo and interaction simulator
 
-The submission is zero-setup after the page loads: three complete synthetic POV
-recordings and opted-in squad comms are already bundled. Every visible event,
-HUD signal, voice line, reaction, synchronization anchor, citation, and edit cut
-maps back to those exact files through `session.media`.
+The submission is zero-setup after the page loads. Three 30-second clips are
+embedded from the verified Free Fire Esports Official YouTube channel and come
+from the same FFWS Global Finals 2025 Clash Squad final. They show the setup,
+AG.DEW gameplay POV, and live team reaction around one real clutch.
+
+Because an official broadcast does not publish synchronized private recordings
+or private squad comms, the deeper squad-only product interactions remain a
+separate labeled simulation. Every simulated event, HUD signal, voice line,
+reaction, synchronization anchor, citation, and edit cut maps back to the local
+simulation files through `session.media`.
 
 Recommended 90-second judge flow:
 
-1. Preview any of the three **Preloaded squad inputs** at its evidence cue.
-2. Select **Run disclosed synthetic benchmark** to replay the six-stage trace.
-3. Play the Director's Cut and watch it switch among the source recordings.
-4. Open Rin's top-ranked flank hold and click an evidence row to seek its exact
+1. Play any of the three **Preloaded real Garena footage** clips.
+2. Select a clip and run its verified evidence scan.
+3. Launch the clearly labeled multi-POV interaction simulator.
+4. Play the Director's Cut and watch it switch among the simulated source recordings.
+5. Open Rin's top-ranked flank hold and click an evidence row to seek its exact
    source timestamp.
-5. Switch to **What You Missed** to show Ace-only personalization.
-6. Ask: “What were my teammates doing during my final clutch?” and open one of
+6. Switch to **What You Missed** to show Ace-only personalization.
+7. Ask: “What were my teammates doing during my final clutch?” and open one of
    the answer citations.
-7. End on the media-to-evidence trace: source frame, detector modalities,
+8. End on the media-to-evidence trace: source frame, detector modalities,
    canonical timestamp, evidence ID, ranking, and edit decision.
 
-The full flow fits comfortably within roughly two minutes. The fixture path is
+The full flow fits comfortably within roughly two minutes. The simulator is
 intentional: it replays deterministic alignment, multimodal observations,
-cross-perspective fusion, ranking, and edit planning over the bundled fictional
-recordings. This is a precomputed submission analysis—not a claim that an
-arbitrary recording was uploaded or analyzed live during the page request.
+cross-perspective fusion, ranking, and edit planning over bundled fictional
+recordings. It is never presented as analysis of the official footage or as a
+claim that arbitrary media was uploaded during the page request.
 
 ## Product architecture
 
@@ -129,7 +139,7 @@ The evidence ledger and deterministic renderer remain the source of truth.
 
 ### `POST /api/analyze/clip`
 
-Accepts one clip's metadata, two to eight timestamped JPEG samples, and an
+Accepts one clip's metadata, two to sixteen timestamped JPEG samples, and an
 optional consented WAV track. It returns a real model response trace plus
 evidence-backed observations. It returns `AI_NOT_CONFIGURED` when the server
 secret is absent.
