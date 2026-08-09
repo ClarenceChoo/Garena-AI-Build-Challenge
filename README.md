@@ -17,6 +17,19 @@ Esports channel provide a zero-upload demonstration. A separate, clearly
 labeled three-player simulation remains only for private squad features that an
 official broadcast cannot expose, such as synchronized personal POVs and comms.
 
+## Contents
+
+- [Run locally](#run-locally)
+- [Live AI flow](#live-ai-flow)
+- [Preloaded real-footage demo and interaction simulator](#preloaded-real-footage-demo-and-interaction-simulator)
+- [Product architecture](#product-architecture)
+- [Demo API](#demo-api)
+- [Validation](#validation)
+- [Privacy and safety defaults](#privacy-and-safety-defaults)
+- [Prototype boundaries](#prototype-boundaries)
+- [Submission evaluation guide](#submission-evaluation-guide)
+- [Third-party libraries, models, data, and APIs](#third-party-libraries-models-data-and-apis)
+
 ## Run locally
 
 Requirements: Node.js 22.13 or newer.
@@ -43,7 +56,7 @@ Never expose the key to the browser or commit `.env.local`.
 
 ## GitHub automatic deployment
 
-`.github/workflows/deploy.yml` validates every push to `main` and can deploy the
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) validates every push to `main` and can deploy the
 production build to Cloudflare Workers. The existing `chatgpt.site` deployment
 continues to be managed by OpenAI Sites; Sites does not currently expose a
 GitHub Actions deployment hook.
@@ -116,6 +129,8 @@ cross-perspective fusion, ranking, and edit planning over bundled fictional
 recordings. It is never presented as analysis of the official footage or as a
 claim that arbitrary media was uploaded during the page request.
 
+---
+
 ## Product architecture
 
 ```text
@@ -136,25 +151,27 @@ shared event ledger
 The product separates live multimodal inference from deterministic benchmark
 evidence:
 
-- `lib/unseen-openai.ts` owns live transcription, vision, structured output
+- [`lib/unseen-openai.ts`](lib/unseen-openai.ts) owns live transcription, vision, structured output
   validation, cross-POV linking, and fail-closed OpenAI errors.
-- `lib/real-analysis-types.ts` defines live upload, observation, provenance,
+- [`lib/real-analysis-types.ts`](lib/real-analysis-types.ts) defines live upload, observation, provenance,
   alignment, story, and edit-decision contracts.
-- `app/api/analyze/clip` and `app/api/analyze/link` are the live AI endpoints.
-- `app/components/real-analysis-workbench.tsx` performs local media extraction
+- [`app/api/analyze/clip`](app/api/analyze/clip) and [`app/api/analyze/link`](app/api/analyze/link) are the live AI endpoints.
+- [`app/components/real-analysis-workbench.tsx`](app/components/real-analysis-workbench.tsx) performs local media extraction
   and renders source-linked results.
 
-- `lib/unseen-fixture.ts` is the canonical three-player session fixture.
-- `lib/unseen-types.ts` defines session, evidence, moment, edit, and API contracts.
-- `lib/unseen-pipeline.ts` contains alignment, scoring, and edit-plan logic.
-- `lib/unseen-ai.ts` owns grounded answer generation and the optional Responses
+- [`lib/unseen-fixture.ts`](lib/unseen-fixture.ts) is the canonical three-player session fixture.
+- [`lib/unseen-types.ts`](lib/unseen-types.ts) defines session, evidence, moment, edit, and API contracts.
+- [`lib/unseen-pipeline.ts`](lib/unseen-pipeline.ts) contains alignment, scoring, and edit-plan logic.
+- [`lib/unseen-ai.ts`](lib/unseen-ai.ts) owns grounded answer generation and the optional Responses
   API integration.
-- `app/api/demo/*` exposes fixture-backed session, processing, and question APIs.
-- `app/components/unseen-experience.tsx` is the interactive product experience.
+- [`app/api/demo/*`](app/api/demo) exposes fixture-backed session, processing, and question APIs.
+- [`app/components/unseen-experience.tsx`](app/components/unseen-experience.tsx) is the interactive product experience.
 
 The model never receives authority to invent timestamps or manipulate video.
 Its role is bounded to structured interpretation and concise, grounded language.
 The evidence ledger and deterministic renderer remain the source of truth.
+
+---
 
 ## Demo API
 
@@ -237,7 +254,7 @@ visual-event, and synthetic voice assets:
 ```
 
 After regeneration, update the manifest hashes and byte sizes in
-`lib/unseen-fixture.ts`. The acceptance suite fails if the committed assets no
+[`lib/unseen-fixture.ts`](lib/unseen-fixture.ts). The acceptance suite fails if the committed assets no
 longer match that manifest.
 
 ## Privacy and safety defaults
@@ -273,3 +290,80 @@ viewer-scoped responses, working grant/revoke and delete controls, encrypted
 short-lived media storage, and a complete deletion lineage. For any future demo
 using real footage, obtain every squad member's permission and review the
 selected game's recording, music, and sharing rules before distribution.
+
+---
+
+## Submission evaluation guide
+
+The recommended judging path is local. The preloaded official-footage opener and
+the clearly disclosed interaction simulator run without credentials after
+following [Run locally](#run-locally). A judge can optionally configure their own
+server-side OpenAI key to exercise the live multimodal workflow.
+
+The repository deliberately keeps these three evidence types distinct:
+
+- **Real footage:** embedded excerpts from the verified Free Fire Esports
+  Official YouTube channel.
+- **Fictional simulation:** committed, synchronized squad recordings used to
+  demonstrate private POVs and opted-in comms unavailable in a public broadcast.
+- **Live AI output:** created only from clips uploaded during the current run
+  after OpenAI is configured. Failed live runs never substitute fixture output.
+
+### Challenge requirement mapping
+
+| Case-brief requirement | Implemented evidence |
+| --- | --- |
+| Complete user interaction and outcome | [`app/components/unseen-experience.tsx`](app/components/unseen-experience.tsx) lets judges process a session, review source-linked moments, switch personalized views, and ask grounded questions. |
+| Initial trigger or input | [`app/components/real-analysis-workbench.tsx`](app/components/real-analysis-workbench.tsx) accepts two to four clips, perspective labels, recording permission, and separate voice consent. |
+| Models, tools, and APIs | [`lib/unseen-openai.ts`](lib/unseen-openai.ts) contains the OpenAI Responses and Audio Transcriptions API calls, structured prompts, schemas, provenance capture, and response validation. |
+| Human review points | Users preview clips, confirm permissions, inspect model observations and response IDs, seek cited source timestamps, and review edit decisions. |
+| Exception handling | [`app/api/analyze/*`](app/api/analyze) rejects invalid input, missing configuration, API failures, invalid structured output, and unsupported citations. Insufficient evidence produces abstention. |
+| Final output or action | The product creates a Director's Cut decision list, personalized What You Missed moments, a squad recap, and grounded answers with playable citations. |
+| Architecture overview | See [Product architecture](#product-architecture) and [`docs/AI_PIPELINE.md`](docs/AI_PIPELINE.md). |
+| Prompts and model configuration | Live prompts and JSON schemas are in [`lib/unseen-openai.ts`](lib/unseen-openai.ts); grounded fixture Q&A instructions are in [`lib/unseen-ai.ts`](lib/unseen-ai.ts); model defaults are in [`.env.example`](.env.example). No autonomous agent framework is used. |
+| Third-party disclosure | See [Third-party libraries, models, data, and APIs](#third-party-libraries-models-data-and-apis). |
+
+## Third-party libraries, models, data, and APIs
+
+### Direct libraries and tooling
+
+| Component | Version | License | Use |
+| --- | --- | --- | --- |
+| Next.js | 16.2.6 | MIT | Application and route-handler framework |
+| React / React DOM | 19.2.6 | MIT | Interactive user interface |
+| vinext | 0.0.50 | MIT | Vite-based Next.js-compatible build and Cloudflare output |
+| Vite | 8.0.13 | MIT | Build tooling |
+| Tailwind CSS | 4.2.1 | MIT | Styling toolchain |
+| Drizzle ORM | 0.45.2 | Apache-2.0 | Typed database scaffold; not required by the demo flow |
+| TypeScript | 5.9.3 | Apache-2.0 | Type checking and development |
+| ESLint | 9.39.4 | MIT | Static analysis |
+| Wrangler | 4.92.0 | MIT OR Apache-2.0 | Optional Cloudflare Workers deployment |
+
+Additional direct development dependencies and exact versions are disclosed in
+[`package.json`](package.json); transitive dependency versions and integrity hashes are locked
+in [`package-lock.json`](package-lock.json).
+
+### Models and external APIs
+
+| Component | Use | Data sent |
+| --- | --- | --- |
+| OpenAI Responses API | Structured vision observations, cross-POV linking, and grounded answers | Sampled JPEG frames, compact evidence, and optional transcript context |
+| `gpt-5.6-sol` | Default live vision and linking model | Same as above |
+| OpenAI Audio Transcriptions API | Optional opted-in speech transcription | Consented mono WAV excerpt |
+| `gpt-4o-mini-transcribe` | Default transcription model | Consented mono WAV excerpt |
+| `gpt-5.6` | Optional grounded language generation for the disclosed fixture | Consent-filtered evidence text |
+| YouTube privacy-enhanced embed | Plays the official-footage opener | Standard embedded-player requests; the repository does not store the broadcast file |
+
+### Media and datasets
+
+- `public/demo/*.mp4` and `public/demo/*-poster.jpg` are fictional,
+  locally generated three-player demo media.
+- [`assets/demo/`](assets/demo) contains the timed subtitle and filter sources used to
+  regenerate that media.
+- [`lib/unseen-fixture.ts`](lib/unseen-fixture.ts) contains the disclosed fictional players, quotes,
+  timestamps, consent records, anchors, observations, and expected events.
+- No separately trained model, scraped dataset, biometric dataset, persistent
+  upload store, or persistent real-player dataset is included.
+- Third-party packages and services remain subject to their upstream licenses
+  and terms. Real squad footage additionally requires participant permission and
+  compliance with applicable game, music, privacy, and sharing rules.
