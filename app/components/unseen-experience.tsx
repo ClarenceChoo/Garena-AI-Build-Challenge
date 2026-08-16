@@ -12,7 +12,6 @@ import type {
   AskCitation,
   AskDemoResponse,
   DemoSessionResponse,
-  Participant,
   ParticipantId,
   ProcessDemoResponse,
   SessionEvidence,

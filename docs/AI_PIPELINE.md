@@ -4,6 +4,27 @@ This module reconstructs a squad session from facts extracted from multiple reco
 
 ## What is implemented
 
+The default long-footage path is implemented in three bounded layers:
+
+- `lib/gameplay-search-client.ts` uses Mediabunny random-access sources to scan
+  low-resolution frames every two seconds, retain ten-second context, score
+  visual/HUD change and local audio energy, and select at most 24 evidence
+  images per two-minute segment. It also creates consented Opus chunks and
+  renders validated highlight plans without loading the entire source into memory.
+- `lib/gameplay-search-openai.ts` indexes a game-agnostic event ontology,
+  searches the compact index, transcribes only consented voice, and proposes
+  diverse reel beats through strict Structured Outputs with `store: false`.
+- Authenticated `/api/analyze/index-segment`, `/search`, `/highlights`, and
+  `/transcribe` routes reject unknown IDs, missing credentials, invalid consent,
+  and upstream failures rather than substituting fixture output.
+
+Every `GameplayEvent` preserves its source clip/segment, clamped time range,
+readable actors, OCR, confidence, and frame/transcript evidence IDs. Search can
+only return those event IDs. The deterministic highlight compiler can only use
+known clips/events, clamps ranges to media duration, limits each beat to 12
+seconds, removes substantial overlaps, and enforces the target duration. The
+browser renderer never executes a model-generated media command.
+
 `lib/unseen-ai.ts` exports edge-compatible primitives for:
 
 - `alignRecordingsFromAnchors(tracks, options)` — fits an affine local-to-shared clock transform from audio, timer, visual-event, or manual anchors. It uses weighted least squares, deterministic median-absolute-deviation outlier rejection, and an offset-only fallback for implausible drift.
@@ -117,6 +138,12 @@ Those workers should emit `AlignmentTrackInput`, `MomentCandidate`, and `Evidenc
 - When any session evidence is consent-restricted, the demo adapter suppresses unverified related-moment links and suggested follow-ups. If the remaining evidence cannot answer, it returns a consent-safe abstention rather than delegating to a richer fallback that may predate revocation.
 - Prompts prohibit inferring intent, identity, or internal emotion. Deterministic fallbacks use only evidence text.
 - No voiceprint, facial identity profile, synthetic speech, or fabricated footage is produced.
+- Long-gameplay raw bytes remain behind browser-local `File`/blob access. Only
+  selected JPEG frames, numeric audio features, and fully consented audio chunks
+  under 25 MB reach the APIs. Game-only and fully consented sources may preserve
+  original audio in local exports; incomplete voice consent forces muted output.
+- The gameplay event index and rendered object URLs live in page memory only and
+  clear on reload. No D1 or R2 store is attached to the Site.
 - The public challenge endpoints serve only the wholly synthetic fixture and use `Cache-Control: no-store`; they are not an authenticated production data plane. Production must enforce session ownership and squad membership before every read, authorise responses to the specific viewer, re-check current grants at request and job-execution time, cancel/rebuild derived artifacts after revocation, and prevent caches or queued jobs from returning stale pre-revocation data. Deletion must cover raw media, derived frames/transcripts, embeddings/index entries, edit plans, and outputs using the same session lineage ID.
 
 ## Future FFmpeg integration
@@ -140,3 +167,7 @@ Rendering should be retryable independently of AI analysis. The saved edit plan 
 - Lexical evidence retrieval is sufficient for the curated demo. Production should add a session-scoped semantic index while retaining the same consent filters and evidence-ID validation.
 - The edit plan estimates duration; audio overlaps, transition handles, and final encoder timing are resolved by the media worker.
 - Grounded answers explain supported sequences, not hidden player intent or definitive causality.
+- Long-footage sessions support 1–4 files, 60 minutes, and 2 GB combined. Game
+  and mode detection are best-effort; unreadable identities remain unknown.
+- Current Chrome and Edge are the supported reel-export browsers. The renderer
+  prefers H.264/AAC MP4 after codec checks and falls back to VP9/Opus WebM.

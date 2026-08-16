@@ -10,6 +10,7 @@ import type {
   SampledFrame,
 } from "@/lib/real-analysis-types";
 import { REAL_ANALYSIS_LIMITS } from "@/lib/real-analysis-types";
+import { GameplaySearchWorkbench } from "./gameplay-search-workbench";
 import "./real-analysis-workbench.css";
 
 type ClipStatus = "ready" | "extracting" | "transcribing" | "analyzed" | "error";
@@ -197,7 +198,7 @@ async function parseApiError(response: Response): Promise<string> {
   return body?.error?.requestId ? `${message} Request ${body.error.requestId}` : message;
 }
 
-export function RealAnalysisWorkbench() {
+function SquadAnalysisWorkbench() {
   const [clips, setClips] = useState<LocalClip[]>([]);
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [voiceConsent, setVoiceConsent] = useState(false);
@@ -650,5 +651,37 @@ export function RealAnalysisWorkbench() {
         </div>
       )}
     </section>
+  );
+}
+
+export function RealAnalysisWorkbench() {
+  const [mode, setMode] = useState<"gameplay-search" | "squad-reconstruction">("gameplay-search");
+
+  return (
+    <>
+      <nav className="analysis-mode-tabs" aria-label="UNSEEN analysis mode">
+        <button
+          type="button"
+          className={mode === "gameplay-search" ? "active" : ""}
+          aria-pressed={mode === "gameplay-search"}
+          onClick={() => setMode("gameplay-search")}
+        >
+          <span>01</span>
+          <strong>Gameplay Search</strong>
+          <small>Find moments in long footage + export reels</small>
+        </button>
+        <button
+          type="button"
+          className={mode === "squad-reconstruction" ? "active" : ""}
+          aria-pressed={mode === "squad-reconstruction"}
+          onClick={() => setMode("squad-reconstruction")}
+        >
+          <span>02</span>
+          <strong>Squad Reconstruction</strong>
+          <small>Link the same session across 2–4 POVs</small>
+        </button>
+      </nav>
+      {mode === "gameplay-search" ? <GameplaySearchWorkbench /> : <SquadAnalysisWorkbench />}
+    </>
   );
 }

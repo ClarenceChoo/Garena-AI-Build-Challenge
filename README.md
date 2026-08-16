@@ -1,15 +1,21 @@
 # UNSEEN
 
-UNSEEN reconstructs a multiplayer match across the perspectives of an entire
-squad. It aligns independently recorded viewpoints, connects actions with their
-reactions and consequences, and turns the shared evidence into three outputs:
+UNSEEN searches long gameplay recordings and reconstructs multiplayer matches
+across the perspectives of an entire squad. It turns source-bound evidence into
+four outputs:
 
+- natural-language **Gameplay Search** with exact playable citations;
+- downloadable **30/60/90-second highlight reels**;
 - a multi-perspective **Director's Cut**;
 - a personalised **What You Missed** feed; and
 - **Ask UNSEEN**, grounded session search with playable evidence.
 
 This repository is the judge-facing proof of concept for the Garena AI Build
-Challenge. Its primary workflow accepts two to four real local recordings,
+Challenge. Its default workflow accepts one to four local recordings totaling
+up to 60 minutes and 2 GB, adaptively indexes selected frames, and searches a
+temporary in-memory event ledger without uploading raw footage. It can compile
+and render a source-audio highlight reel locally in current Chrome or Edge.
+The secondary squad workflow accepts two to four real local recordings,
 extracts timestamped frames and optional opted-in audio in the browser, analyzes
 each POV with OpenAI, and runs a second model pass that links evidence across
 the squad. Three preloaded real-footage clips from Garena's verified Free Fire
@@ -20,6 +26,7 @@ official broadcast cannot expose, such as synchronized personal POVs and comms.
 ## Contents
 
 - [Run locally](#run-locally)
+- [Gameplay Search and reel export](#gameplay-search-and-reel-export)
 - [Live AI flow](#live-ai-flow)
 - [Preloaded real-footage demo and interaction simulator](#preloaded-real-footage-demo-and-interaction-simulator)
 - [Product architecture](#product-architecture)
@@ -50,9 +57,36 @@ prewritten output. To run real vision, transcription, and cross-clip linking:
 cp .env.example .env.local
 ```
 
-Add `OPENAI_API_KEY` to `.env.local`. Vision and linking default to
-`gpt-5.6-sol`; audio defaults to `gpt-4o-mini-transcribe`.
+Add `OPENAI_API_KEY` to `.env.local`. Vision, linking, and gameplay search
+default to `gpt-5.6-sol`; squad audio defaults to `gpt-4o-mini-transcribe`, and
+long-gameplay transcript segments default to `whisper-1`.
 Never expose the key to the browser or commit `.env.local`.
+
+## Gameplay Search and reel export
+
+1. Open the default **Gameplay Search** tab and add one to four videos totaling
+   no more than 60 minutes and 2 GB.
+2. Make the required audio declaration and confirm recording permission.
+3. Select **Index footage with AI**. The browser scans low-resolution frames
+   every two seconds, retains ten-second context, reacts to scene/HUD changes
+   and audio-energy spikes, and sends at most 24 timestamped JPEGs per two-minute
+   segment. Two segment requests run concurrently and one failed request is
+   retried once.
+4. Search naturally, for example “X kills Y,” “the final clutch,” or “the
+   funniest reaction.” UNSEEN returns up to five ranked matches with source
+   clip, exact range, confidence, frame/transcript IDs, and a two-second pre-roll
+   playback action. Weak searches return `insufficient_evidence`.
+5. Pin search results or ask AI to select varied indexed beats. Choose 30, 60,
+   or 90 seconds and landscape or vertical. The deterministic browser renderer
+   clamps every cut, preserves the full frame with blurred vertical fill, adds
+   two-line evidence-based captions, and downloads H.264/AAC MP4 when supported
+   or VP9/Opus WebM otherwise.
+
+Raw videos stay behind local `File`/blob access. Only selected JPEG evidence,
+numeric audio-energy features, and explicitly consented sub-25 MB audio chunks
+reach the APIs. Voice is never transcribed without complete consent; exports
+are muted when audible voices lack complete consent. The index exists only in
+page memory and clears on reload. There is no D1 or R2 storage.
 
 ## GitHub automatic deployment
 
@@ -151,6 +185,16 @@ shared event ledger
 The product separates live multimodal inference from deterministic benchmark
 evidence:
 
+- [`lib/gameplay-search-client.ts`](lib/gameplay-search-client.ts) owns adaptive local sampling,
+  consented audio chunking, codec selection, and deterministic local reel rendering.
+- [`lib/gameplay-search-openai.ts`](lib/gameplay-search-openai.ts) owns strict gameplay indexing,
+  search, transcription, highlight planning, evidence-ID validation, timestamp clamping, and fail-closed errors.
+- [`lib/gameplay-search-types.ts`](lib/gameplay-search-types.ts) defines the shared index, event,
+  search-hit, transcript, and highlight-plan contracts.
+- [`app/api/analyze/index-segment`](app/api/analyze/index-segment), [`search`](app/api/analyze/search),
+  [`highlights`](app/api/analyze/highlights), and [`transcribe`](app/api/analyze/transcribe) are the authenticated gameplay APIs.
+- [`app/components/gameplay-search-workbench.tsx`](app/components/gameplay-search-workbench.tsx) is the
+  default long-footage search and reel-export experience.
 - [`lib/unseen-openai.ts`](lib/unseen-openai.ts) owns live transcription, vision, structured output
   validation, cross-POV linking, and fail-closed OpenAI errors.
 - [`lib/real-analysis-types.ts`](lib/real-analysis-types.ts) defines live upload, observation, provenance,
@@ -174,6 +218,32 @@ The evidence ledger and deterministic renderer remain the source of truth.
 ---
 
 ## Demo API
+
+### `POST /api/analyze/index-segment`
+
+Accepts one two-minute source segment with at most 24 timestamped JPEG evidence
+frames, numeric audio features, optional consented transcript segments, and
+prior detected context. It returns game-agnostic, evidence-linked
+`GameplayEvent` records and real OpenAI request provenance.
+
+### `POST /api/analyze/search`
+
+Accepts a natural-language query plus the compact completed event index. It
+returns at most five validated `GameplaySearchHit` records or an explicit
+`insufficient_evidence` result. Unknown clip, segment, event, frame, or
+transcript IDs are rejected.
+
+### `POST /api/analyze/highlights`
+
+Accepts a reel prompt, duration, aspect ratio, completed index, and optional
+pinned event IDs. It returns a validated `HighlightPlan`; application code
+clamps ranges to source duration, removes substantial overlaps, and enforces the
+duration budget before any media is decoded.
+
+### `POST /api/analyze/transcribe`
+
+Accepts only multipart audio chunks under 25 MB with an explicit complete-voice-
+consent assertion. It returns timestamped `whisper-1` transcript segments.
 
 ### `POST /api/analyze/clip`
 
@@ -239,6 +309,8 @@ npm test
 The test suite verifies the production build, server-rendered product shell,
 fail-closed live configuration, multimodal image/transcription request shape,
 real response/request provenance, cross-clip source-link validation,
+gameplay event citation validation, unknown-evidence rejection, consent-gated
+transcription, insufficient-evidence semantics, and reel timestamp clamping,
 non-cacheable routes, session and fixture contracts, media fingerprints,
 source-to-shared mappings, reasoning artifacts, benchmark Q&A, and invalid
 input behavior.
@@ -278,12 +350,12 @@ longer match that manifest.
 
 ## Prototype boundaries
 
-This version analyzes arbitrary browser-decodable short gameplay recordings.
-It samples frames rather than uploading full video and relies on model vision
-for HUD reading; it does not yet run dense frame-by-frame tracking, audio
-fingerprinting, server-side FFmpeg, persistent media storage, or final MP4
-rendering. The Director's Cut is an evidence-backed edit decision list with
-click-to-seek source playback.
+This version analyzes arbitrary browser-decodable short squad recordings and
+long gameplay sessions. It relies on model vision for best-effort HUD reading
+and does not run dense frame-by-frame tracking, player re-identification,
+server-side FFmpeg, persistent media storage, or a persistent semantic index.
+Local reel rendering is intentionally limited to codecs exposed by the current
+browser; current Chrome and Edge are the supported demo targets.
 
 Production would additionally require authenticated session ownership,
 viewer-scoped responses, working grant/revoke and delete controls, encrypted
