@@ -62,7 +62,7 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>UNSEEN — The whole squad story<\/title>/i);
+  assert.match(html, /<title>UNSEEN — Search every moment\. See the whole squad story\.<\/title>/i);
   assert.match(html, /UNSEEN/);
   assert.match(html, /judge@example\.com/);
   assert.match(html, /Sign out/);
@@ -109,6 +109,29 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(realWorkbench, /\/api\/analyze\/link/);
   assert.match(realWorkbench, /\/api\/analyze\/ask/);
   assert.match(realWorkbench, /MAXIMUM_CLIP_MINUTES/);
+  assert.match(realWorkbench, /Gameplay Search/);
+  assert.match(realWorkbench, /Squad Reconstruction/);
+  assert.match(realWorkbench, /"gameplay-search"/);
+  const gameplayWorkbench = await readFile(
+    new URL("app/components/gameplay-search-workbench.tsx", projectRoot),
+    "utf8",
+  );
+  assert.match(gameplayWorkbench, /GAME-AGNOSTIC \/ LOCAL-FIRST/);
+  assert.match(gameplayWorkbench, /Raw video stays in your/);
+  assert.match(gameplayWorkbench, /\/api\/analyze\/index-segment/);
+  assert.match(gameplayWorkbench, /\/api\/analyze\/search/);
+  assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
+  assert.match(gameplayWorkbench, /\/api\/analyze\/transcribe/);
+  assert.match(gameplayWorkbench, /insufficient_evidence/);
+  const gameplayLimits = await readFile(new URL("lib/gameplay-search-types.ts", projectRoot), "utf8");
+  assert.match(gameplayLimits, /maximumClips: 4/);
+  assert.match(gameplayLimits, /maximumTotalDurationMs: 60 \* 60_000/);
+  assert.match(gameplayLimits, /maximumFramesPerSegment: 24/);
+  const gameplayClient = await readFile(new URL("lib/gameplay-search-client.ts", projectRoot), "utf8");
+  assert.match(gameplayClient, /new BlobSource\(file/);
+  assert.match(gameplayClient, /new Mp4OutputFormat/);
+  assert.match(gameplayClient, /new WebMOutputFormat/);
+  assert.match(gameplayClient, /fit: "contain"/);
   const realLimits = await readFile(new URL("lib/real-analysis-types.ts", projectRoot), "utf8");
   assert.match(realLimits, /maximumDurationMs: 3 \* 60_000/);
   assert.match(realLimits, /framesPerClip: 16/);
@@ -207,11 +230,257 @@ test("live analysis fails closed when the server secret is absent", async () => 
     const payload = await response.json();
     assert.equal(payload.error.code, "AI_NOT_CONFIGURED");
     assert.match(payload.error.message, /will not substitute prewritten results/i);
+
+    const searchResponse = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(searchResponse.status, 503);
+    assert.equal((await searchResponse.json()).error.code, "AI_NOT_CONFIGURED");
   } finally {
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
     if (previousAccessToken === undefined) delete process.env.UNSEEN_API_ACCESS_TOKEN;
     else process.env.UNSEEN_API_ACCESS_TOKEN = previousAccessToken;
+  }
+});
+
+test("gameplay search indexes cited events, seeks only known IDs, and clamps reel cuts", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  const upstreamRequests = [];
+  globalThis.fetch = async (_url, init) => {
+    const outbound = JSON.parse(init.body);
+    upstreamRequests.push(outbound);
+    assert.equal(outbound.store, false);
+    assert.equal(outbound.model, "gpt-5.6-sol");
+    const schema = outbound.text.format.name;
+    if (schema === "unseen_gameplay_segment_index") {
+      assert.equal(
+        outbound.input[0].content.filter((item) => item.type === "input_image").length,
+        2,
+      );
+      return new Response(JSON.stringify({
+        id: "resp_gameplay_index",
+        model: "gpt-5.6-sol-2026-08-01",
+        output_text: JSON.stringify({
+          gameTitle: "Free Fire",
+          gameMode: "Battle Royale",
+          contextSummary: "Player X wins a close fight against Player Y.",
+          events: [{
+            id: "clip-long-segment-001-event-1",
+            startMs: 44_000,
+            endMs: 46_000,
+            type: "elimination",
+            title: "X eliminates Y",
+            description: "The kill feed visibly credits X with eliminating Y.",
+            actors: ["X"],
+            target: "Y",
+            ocrText: "X eliminated Y",
+            importance: 90,
+            confidence: 0.96,
+            evidenceFrameIds: ["clip-long-segment-001-frame-44000"],
+            transcriptSegmentIds: [],
+          }, {
+            id: "clip-long-segment-001-event-duplicate",
+            startMs: 44_100,
+            endMs: 46_100,
+            type: "elimination",
+            title: "X eliminates Y",
+            description: "A duplicate read of the same kill feed event.",
+            actors: ["X"],
+            target: "Y",
+            ocrText: "X eliminated Y",
+            importance: 80,
+            confidence: 0.88,
+            evidenceFrameIds: ["clip-long-segment-001-frame-44000"],
+            transcriptSegmentIds: [],
+          }],
+        }),
+        usage: { input_tokens: 500, output_tokens: 100 },
+      }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_gameplay_index" } });
+    }
+    if (schema === "unseen_gameplay_search") {
+      const requestedGhost = outbound.input.includes("ghost event");
+      const requestedSkin = outbound.input.includes("equipped skin");
+      return new Response(JSON.stringify({
+        id: "resp_gameplay_search",
+        model: "gpt-5.6-sol-2026-08-01",
+        output_text: JSON.stringify({
+          answerType: requestedSkin ? "insufficient_evidence" : "matches",
+          summary: requestedSkin ? "No indexed evidence identifies the equipped skin." : "One cited elimination matches.",
+          hits: requestedSkin ? [] : [{ eventId: requestedGhost ? "unknown-event" : "clip-long-segment-001-event-1", title: "X eliminates Y", whyMatch: "The visible kill feed matches both players.", confidence: 0.97 }],
+        }),
+        usage: { input_tokens: 150, output_tokens: 40 },
+      }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_gameplay_search" } });
+    }
+    assert.equal(schema, "unseen_highlight_plan");
+    return new Response(JSON.stringify({
+      id: "resp_gameplay_highlights",
+      model: "gpt-5.6-sol-2026-08-01",
+      output_text: JSON.stringify({
+        title: "The X vs Y Finish",
+        beats: [{ eventId: "clip-long-segment-001-event-1", startMs: -5_000, endMs: 200_000, caption: "X closes the fight against Y" }],
+      }),
+      usage: { input_tokens: 180, output_tokens: 55 },
+    }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req_gameplay_highlights" } });
+  };
+
+  const clip = { id: "clip-long", name: "full-game.mp4", label: "Player X", durationMs: 120_000, sizeBytes: 20_000_000 };
+  try {
+    const indexResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clip,
+        segment: { id: "clip-long-segment-001", startMs: 0, endMs: 120_000 },
+        frames: [
+          { id: "clip-long-segment-001-frame-44000", timestampMs: 44_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 960, height: 540, detail: "high", reason: "hud_change" },
+          { id: "clip-long-segment-001-frame-46000", timestampMs: 46_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 320, height: 180, detail: "low", reason: "context" },
+        ],
+        audioFeatures: [{ timestampMs: 44_000, rms: 0.4, peak: 0.9 }],
+        transcriptSegments: [],
+        priorContext: null,
+      }),
+    });
+    assert.equal(indexResponse.status, 200);
+    const indexed = await indexResponse.json();
+    assert.equal(indexed.api.responseId, "resp_gameplay_index");
+    assert.equal(indexed.events[0].clipId, clip.id);
+    assert.equal(indexed.events.length, 1, "duplicate detections in one event window should collapse");
+    assert.deepEqual(indexed.events[0].evidenceFrameIds, ["clip-long-segment-001-frame-44000"]);
+
+    const searchResponse = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ query: "a moment where X kills Y", clips: [clip], segments: [indexed] }),
+    });
+    assert.equal(searchResponse.status, 200);
+    const search = await searchResponse.json();
+    assert.equal(search.answerType, "matches");
+    assert.equal(search.hits[0].startMs, 44_000);
+    assert.deepEqual(search.hits[0].evidenceFrameIds, ["clip-long-segment-001-frame-44000"]);
+
+    const insufficientResponse = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ query: "which equipped skin was visible", clips: [clip], segments: [indexed] }),
+    });
+    assert.equal(insufficientResponse.status, 200);
+    const insufficient = await insufficientResponse.json();
+    assert.equal(insufficient.answerType, "insufficient_evidence");
+    assert.deepEqual(insufficient.hits, []);
+
+    const unknownEventResponse = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ query: "find the ghost event", clips: [clip], segments: [indexed] }),
+    });
+    assert.equal(unknownEventResponse.status, 502);
+    assert.equal((await unknownEventResponse.json()).error.code, "OPENAI_INVALID_OUTPUT");
+
+    const highlightResponse = await dispatch("/api/analyze/highlights", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: "Make a reel about the X vs Y fight",
+        targetDurationMs: 30_000,
+        aspectRatio: "9:16",
+        clips: [clip],
+        segments: [indexed],
+        selectedEventIds: [indexed.events[0].id],
+      }),
+    });
+    assert.equal(highlightResponse.status, 200);
+    const highlight = await highlightResponse.json();
+    assert.equal(highlight.aspectRatio, "9:16");
+    assert.ok(highlight.beats[0].startMs >= 0);
+    assert.ok(highlight.beats[0].endMs <= clip.durationMs);
+    assert.ok(highlight.beats[0].endMs - highlight.beats[0].startMs <= 12_000);
+    assert.ok(highlight.estimatedDurationMs <= 30_000);
+    assert.equal(upstreamRequests.length, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("gameplay routes reject unknown evidence and unconsented voice transmission", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    return new Response(JSON.stringify({
+      id: "resp_bad_index",
+      model: "gpt-5.6-sol",
+      output_text: JSON.stringify({
+        gameTitle: "Unknown game",
+        gameMode: "Unknown mode",
+        contextSummary: "Unclear footage.",
+        events: [{
+          id: "segment-a-event-1", startMs: 1_000, endMs: 2_000, type: "other",
+          title: "Unverified", description: "Bad citation", actors: [], target: null,
+          ocrText: "", importance: 20, confidence: 0.2,
+          evidenceFrameIds: ["hallucinated-frame"], transcriptSegmentIds: [],
+        }],
+      }),
+      usage: { input_tokens: 20, output_tokens: 20 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const invalidIndex = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clip: { id: "clip-a", name: "a.mp4", label: "A", durationMs: 10_000, sizeBytes: 1_000_000 },
+        segment: { id: "segment-a", startMs: 0, endMs: 10_000 },
+        frames: [
+          { id: "frame-a", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
+          { id: "frame-b", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+        ],
+        audioFeatures: [], transcriptSegments: [], priorContext: null,
+      }),
+    });
+    assert.equal(invalidIndex.status, 502);
+    assert.equal((await invalidIndex.json()).error.code, "OPENAI_INVALID_OUTPUT");
+
+    const audio = new FormData();
+    audio.append("file", new Blob(["voice"], { type: "audio/webm" }), "voice.webm");
+    audio.append("clipId", "clip-a");
+    audio.append("chunkStartMs", "0");
+    audio.append("voiceConsent", "false");
+    const unconsented = await dispatch("/api/analyze/transcribe", {
+      method: "POST",
+      headers: AUTH_HEADERS,
+      body: audio,
+    });
+    assert.equal(unconsented.status, 400);
+    assert.equal((await unconsented.json()).error.code, "INVALID_REQUEST");
+
+    const overDuration = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        query: "find a clutch",
+        clips: [
+          { id: "long-a", name: "a.mp4", label: "A", durationMs: 31 * 60_000, sizeBytes: 500_000_000 },
+          { id: "long-b", name: "b.mp4", label: "B", durationMs: 31 * 60_000, sizeBytes: 500_000_000 },
+        ],
+        segments: [],
+      }),
+    });
+    assert.equal(overDuration.status, 400);
+    assert.match((await overDuration.json()).error.message, /60-minute/i);
+    assert.equal(upstreamCalls, 1, "unconsented audio must be rejected before any upstream request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
   }
 });
 

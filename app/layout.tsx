@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "UNSEEN — The whole squad story";
+const title = "UNSEEN — Search every moment. See the whole squad story.";
 const description =
-  "UNSEEN reconstructs a multiplayer gaming session across every squad perspective, revealing the moments no single player saw.";
+  "Search long gameplay naturally, jump to evidence-cited moments, create highlight reels, and reconstruct the story across every squad perspective.";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -37,7 +37,7 @@ export async function generateMetadata(): Promise<Metadata> {
       type: "website",
       title,
       description,
-      images: [{ url: socialImage, width: 1730, height: 909, alt: "UNSEEN — The story no single player saw" }],
+      images: [{ url: socialImage, width: 1730, height: 909, alt: "UNSEEN gameplay search, evidence timeline, and squad story" }],
     },
     twitter: {
       card: "summary_large_image",
