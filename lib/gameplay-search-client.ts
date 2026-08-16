@@ -182,23 +182,30 @@ export async function extractAdaptiveSegmentEvidence(
     let previous: Uint8Array | null = null;
     const canvasIterator = lowSink.canvasesAtTimestamps(times.map((time) => time / 1_000));
     const audioIterator = audioSink?.samplesAtTimestamps(times.map((time) => time / 1_000));
-    for (let index = 0; index < times.length; index += 1) {
-      abortIfNeeded(signal);
-      const canvasResult = await canvasIterator.next();
-      const audioResult = audioIterator ? await audioIterator.next() : null;
-      if (!canvasResult.value) continue;
-      const signature = visualSignature(canvasResult.value.canvas);
-      const difference = signatureDifference(signature, previous);
-      previous = signature;
-      const energy = audioEnergy(audioResult?.value ?? null);
-      points.push({
-        timestampMs: times[index],
-        visualScore: difference.visual,
-        hudScore: difference.hud,
-        rms: energy.rms,
-        peak: energy.peak,
-        signature,
-      });
+    try {
+      for (let index = 0; index < times.length; index += 1) {
+        abortIfNeeded(signal);
+        const canvasResult = await canvasIterator.next();
+        const audioResult = audioIterator ? await audioIterator.next() : null;
+        const energy = audioEnergy(audioResult?.value ?? null);
+        if (!canvasResult.value) continue;
+        const signature = visualSignature(canvasResult.value.canvas);
+        const difference = signatureDifference(signature, previous);
+        previous = signature;
+        points.push({
+          timestampMs: times[index],
+          visualScore: difference.visual,
+          hudScore: difference.hud,
+          rms: energy.rms,
+          peak: energy.peak,
+          signature,
+        });
+      }
+    } finally {
+      await Promise.allSettled([
+        canvasIterator.return(undefined),
+        audioIterator?.return(undefined) ?? Promise.resolve(),
+      ]);
     }
 
     const contextPoints = points.filter((point) =>
@@ -220,29 +227,33 @@ export async function extractAdaptiveSegmentEvidence(
     const maxAudioRms = Math.max(0.0001, ...points.map((point) => point.rms));
     const frames: GameplayEvidenceFrame[] = [];
     const highIterator = highSink.canvasesAtTimestamps(selected.map((point) => point.timestampMs / 1_000));
-    for (const point of selected) {
-      abortIfNeeded(signal);
-      const result = await highIterator.next();
-      if (!result.value) continue;
-      const isContext = contextIds.has(point.timestampMs);
-      const reason: GameplayEvidenceFrame["reason"] = isContext
-        ? "context"
-        : point.rms >= maxAudioRms * 0.82
-          ? "audio_peak"
-          : point.hudScore >= point.visualScore
-            ? "hud_change"
-            : "visual_change";
-      const imageDataUrl = await canvasToJpegDataUrl(result.value.canvas);
-      const canvas = result.value.canvas;
-      frames.push({
-        id: `${segmentId}-frame-${point.timestampMs}`,
-        timestampMs: point.timestampMs,
-        imageDataUrl,
-        width: canvas.width,
-        height: canvas.height,
-        detail: isContext ? "low" : "high",
-        reason,
-      });
+    try {
+      for (const point of selected) {
+        abortIfNeeded(signal);
+        const result = await highIterator.next();
+        if (!result.value) continue;
+        const isContext = contextIds.has(point.timestampMs);
+        const reason: GameplayEvidenceFrame["reason"] = isContext
+          ? "context"
+          : point.rms >= maxAudioRms * 0.82
+            ? "audio_peak"
+            : point.hudScore >= point.visualScore
+              ? "hud_change"
+              : "visual_change";
+        const imageDataUrl = await canvasToJpegDataUrl(result.value.canvas);
+        const canvas = result.value.canvas;
+        frames.push({
+          id: `${segmentId}-frame-${point.timestampMs}`,
+          timestampMs: point.timestampMs,
+          imageDataUrl,
+          width: canvas.width,
+          height: canvas.height,
+          detail: isContext ? "low" : "high",
+          reason,
+        });
+      }
+    } finally {
+      await highIterator.return(undefined);
     }
     if (frames.length < 2) throw new Error("Too few gameplay frames could be decoded from this segment.");
     return { frames, audioFeatures };
@@ -470,7 +481,6 @@ export async function renderGameplayReel(
           numberOfChannels: 2,
           sampleRate: 48_000,
           sampleFormat: "f32",
-          process: (sample) => fadeAudioSample(sample, beatSpans),
         },
       })
     : null;
@@ -491,17 +501,21 @@ export async function renderGameplayReel(
       const sourceTimes: number[] = [];
       for (let time = startSeconds; time < endSeconds - 0.0001; time += frameDuration) sourceTimes.push(time);
       const samples = media.video.samplesAtTimestamps(sourceTimes);
-      for (let index = 0; index < sourceTimes.length; index += 1) {
-        abortIfNeeded(signal);
-        const result = await samples.next();
-        const sample = result.value;
-        if (!sample) continue;
-        const outputTime = outputOffsetSeconds + index * frameDuration;
-        drawReelFrame(context, sample, plan, beat.caption, outputTime);
-        sample.close();
-        await videoSource.add(outputTime, frameDuration, { keyFrame: completedFrames % (framesPerSecond * 2) === 0 });
-        completedFrames += 1;
-        if (completedFrames % 15 === 0) onProgress(Math.min(0.88, completedFrames / totalFrames * 0.88));
+      try {
+        for (let index = 0; index < sourceTimes.length; index += 1) {
+          abortIfNeeded(signal);
+          const result = await samples.next();
+          const sample = result.value;
+          if (!sample) continue;
+          const outputTime = outputOffsetSeconds + index * frameDuration;
+          drawReelFrame(context, sample, plan, beat.caption, outputTime);
+          sample.close();
+          await videoSource.add(outputTime, frameDuration, { keyFrame: completedFrames % (framesPerSecond * 2) === 0 });
+          completedFrames += 1;
+          if (completedFrames % 15 === 0) onProgress(Math.min(0.88, completedFrames / totalFrames * 0.88));
+        }
+      } finally {
+        await samples.return(undefined);
       }
       if (audioSource && media.audio) {
         for await (let sample of media.audio.samples(startSeconds, endSeconds)) {
@@ -519,8 +533,12 @@ export async function renderGameplayReel(
             sample = trimmed;
           }
           sample.setTimestamp(outputOffsetSeconds + Math.max(0, sample.timestamp - startSeconds));
-          await audioSource.add(sample);
-          sample.close();
+          sample = fadeAudioSample(sample, beatSpans);
+          try {
+            await audioSource.add(sample);
+          } finally {
+            sample.close();
+          }
         }
       }
       outputOffsetSeconds += endSeconds - startSeconds;
