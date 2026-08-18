@@ -85,11 +85,14 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/unseen-experience.tsx", projectRoot),
     "utf8",
   );
-  assert.match(experience, /REAL INPUTS \+ HONEST SIMULATION/);
-  assert.match(experience, /MEDIA → EVIDENCE/);
-  assert.match(experience, /FULL MULTI-POV INTERACTION SIMULATOR/);
-  assert.match(experience, /Launch interaction simulator/);
-  assert.match(experience, /SIMULATED PRODUCT FOOTAGE/);
+  assert.match(experience, /<RealAnalysisWorkbench \/>/);
+  assert.match(experience, /Ask the game what/);
+  assert.match(experience, /CONVERSATIONAL SESSION SEARCH/);
+  assert.match(experience, /In the simulator, answers cite/);
+  assert.doesNotMatch(experience, /Consent-aware by design/);
+  assert.doesNotMatch(experience, /The game you won|The story you missed/);
+  assert.doesNotMatch(experience, /REAL INPUTS \+ HONEST SIMULATION/);
+  assert.doesNotMatch(experience, /FULL MULTI-POV INTERACTION SIMULATOR/);
   assert.doesNotMatch(
     experience,
     /PRELOADED REAL GARENA FOOTAGE|DFxrTiUqpCM|Free Fire Esports Official|REAL FOOTAGE \/ BROADCAST-LIMITED DEMO/,
@@ -116,7 +119,10 @@ test("server-renders the finished UNSEEN product shell", async () => {
     "utf8",
   );
   assert.match(gameplayWorkbench, /GAME-AGNOSTIC \/ LOCAL-FIRST/);
+  assert.match(gameplayWorkbench, /Find the exact moment\./);
+  assert.match(gameplayWorkbench, /Cut the reel\./);
   assert.match(gameplayWorkbench, /Raw video stays in your/);
+  assert.doesNotMatch(gameplayWorkbench, /LIVE SEARCH BACKEND READY/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/index-segment/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/search/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
