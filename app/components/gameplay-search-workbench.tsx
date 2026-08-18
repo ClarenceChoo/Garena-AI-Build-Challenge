@@ -9,14 +9,12 @@ import {
   useState,
 } from "react";
 import {
-  createConsentedAudioChunk,
   extractAdaptiveSegmentEvidence,
   readGameplayDuration,
   renderGameplayReel,
   transcriptsForSegment,
 } from "@/lib/gameplay-search-client";
 import type {
-  GameplayAudioDeclaration,
   GameplayClipMetadata,
   GameplaySearchResponse,
   GameplaySegmentIndex,
@@ -24,7 +22,6 @@ import type {
   HighlightAspectRatio,
   HighlightDurationMs,
   HighlightPlan,
-  TranscribeGameplayAudioResponse,
 } from "@/lib/gameplay-search-types";
 import { GAMEPLAY_SEARCH_LIMITS } from "@/lib/gameplay-search-types";
 import "./gameplay-search-workbench.css";
@@ -161,7 +158,6 @@ function dominantContext(segments: GameplaySegmentIndex[]): { game: string; mode
 
 export function GameplaySearchWorkbench() {
   const [clips, setClips] = useState<GameplayClip[]>([]);
-  const [audioDeclaration, setAudioDeclaration] = useState<GameplayAudioDeclaration | "">("");
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
   const [state, setState] = useState<WorkbenchState>("idle");
@@ -249,7 +245,6 @@ export function GameplaySearchWorkbench() {
     && clips.length <= GAMEPLAY_SEARCH_LIMITS.maximumClips
     && totalBytes <= GAMEPLAY_SEARCH_LIMITS.maximumTotalFileBytes
     && totalDurationMs <= GAMEPLAY_SEARCH_LIMITS.maximumTotalDurationMs
-    && Boolean(audioDeclaration)
     && permissionConfirmed
     && backend?.configured === true
     && state !== "indexing";
@@ -329,39 +324,6 @@ export function GameplaySearchWorkbench() {
 
   function updateJob(id: string, patch: Partial<SegmentJob>) {
     setJobs((current) => current.map((job) => job.id === id ? { ...job, ...patch } : job));
-  }
-
-  async function transcribeConsentedAudio(controller: AbortController): Promise<Map<string, GameplayTranscriptSegment[]>> {
-    const byClip = new Map<string, GameplayTranscriptSegment[]>();
-    for (const clip of clips) {
-      const transcript: GameplayTranscriptSegment[] = [];
-      for (let startMs = 0; startMs < clip.durationMs; startMs += GAMEPLAY_SEARCH_LIMITS.audioChunkDurationMs) {
-        if (controller.signal.aborted) throw new DOMException("Indexing canceled.", "AbortError");
-        const endMs = Math.min(clip.durationMs, startMs + GAMEPLAY_SEARCH_LIMITS.audioChunkDurationMs);
-        setMessage(`Encoding consented audio locally · ${clip.label} · ${formatTime(startMs)}`);
-        const audio = await createConsentedAudioChunk(clip.file, startMs, endMs, controller.signal);
-        if (!audio) continue;
-        if (audio.size > GAMEPLAY_SEARCH_LIMITS.maximumAudioChunkBytes) {
-          throw new Error(`A consented audio chunk exceeded 25 MB for ${clip.label}.`);
-        }
-        const form = new FormData();
-        form.append("file", audio, `${clip.id}-${startMs}.webm`);
-        form.append("clipId", clip.id);
-        form.append("chunkStartMs", String(startMs));
-        form.append("voiceConsent", "true");
-        setMessage(`Transcribing opted-in voices · ${clip.label} · ${formatTime(startMs)}`);
-        const response = await fetch("/api/analyze/transcribe", { method: "POST", body: form, signal: controller.signal });
-        if (!response.ok) throw new Error(await apiError(response));
-        const result = await response.json() as TranscribeGameplayAudioResponse;
-        if (result.api.real !== true) throw new Error("The transcription response was not verifiable.");
-        transcript.push(...result.segments);
-      }
-      byClip.set(clip.id, transcript);
-      setClips((current) => current.map((candidate) => candidate.id === clip.id
-        ? { ...candidate, transcripts: transcript }
-        : candidate));
-    }
-    return byClip;
   }
 
   function createJobs(): SegmentJob[] {
@@ -479,15 +441,7 @@ export function GameplaySearchWorkbench() {
     setSearchError("");
     setPlan(null);
     try {
-      let transcriptMap = new Map(clips.map((clip) => [clip.id, clip.transcripts]));
-      if (!retryFailed && audioDeclaration === "voices_consented") {
-        try {
-          transcriptMap = await transcribeConsentedAudio(controller);
-        } catch (error) {
-          if (controller.signal.aborted) throw error;
-          setMessage(`${error instanceof Error ? error.message : "Voice transcription failed."} Continuing with visual evidence.`);
-        }
-      }
+      const transcriptMap = new Map(clips.map((clip) => [clip.id, clip.transcripts]));
       const work = retryFailed
         ? jobs.filter((job) => job.status === "failed").map((job) => ({ ...job, status: "pending" as const, message: "Queued for retry" }))
         : createJobs();
@@ -601,7 +555,7 @@ export function GameplaySearchWorkbench() {
       const rendered = await renderGameplayReel(
         clips.map((clip) => ({ id: clip.id, file: clip.file })),
         plan,
-        audioDeclaration !== "voices_unconsented",
+        false,
         setReelProgress,
         controller.signal,
       );
@@ -630,7 +584,7 @@ export function GameplaySearchWorkbench() {
           <h1 id="gameplay-search-title">Find the exact moment. Cut the reel.</h1>
           <p>
             Give UNSEEN a long gameplay recording, then search it naturally. Raw video stays in your
-            browser; only selected evidence images and explicitly consented audio reach OpenAI.
+            browser; only selected evidence images reach OpenAI. Voice audio is never uploaded or transcribed.
           </p>
         </div>
       </div>
@@ -682,19 +636,10 @@ export function GameplaySearchWorkbench() {
         <span><strong>{eventCount}</strong> VERIFIED EVENTS</span>
       </div>
 
-      <fieldset className="gameplay-audio-declaration">
-        <legend>Required audio declaration</legend>
-        {([
-          ["game_only", "Game audio only", "Use local audio energy and preserve source audio in exports."],
-          ["voices_consented", "Voices — everyone consented", "Transcribe timestamped speech and preserve source audio."],
-          ["voices_unconsented", "Voices — consent incomplete", "Never transcribe speech; exported reels are muted."],
-        ] as const).map(([value, title, description]) => (
-          <label key={value} className={audioDeclaration === value ? "selected" : ""}>
-            <input type="radio" name="gameplay-audio" value={value} checked={audioDeclaration === value} onChange={() => setAudioDeclaration(value)} />
-            <span><strong>{title}</strong><small>{description}</small></span>
-          </label>
-        ))}
-      </fieldset>
+      <div className="gameplay-audio-disabled">
+        <strong>VOICE ANALYSIS OFF</strong>
+        <span>Audio energy is measured locally for event detection. Voice audio is not uploaded, transcribed, or included in exports.</span>
+      </div>
       <label className="gameplay-permission">
         <input type="checkbox" checked={permissionConfirmed} onChange={(event) => setPermissionConfirmed(event.target.checked)} />
         <span><strong>I have permission to analyze these recordings.</strong> Selected JPEG evidence may be sent to OpenAI. UNSEEN stores no raw video or persistent index.</span>
@@ -789,7 +734,7 @@ export function GameplaySearchWorkbench() {
               <div className="gameplay-render-actions">
                 {reelState === "rendering" ? <button type="button" className="secondary" onClick={() => renderingAbort.current?.abort()}>Cancel export</button> : <button type="button" onClick={() => void renderReel()}>Render downloadable reel</button>}
                 {download && <a href={download.url} download={download.name}>Download {download.name} ↓</a>}
-                <span>{audioDeclaration === "voices_unconsented" ? "MUTED · CONSENT INCOMPLETE" : "ORIGINAL PERMITTED AUDIO · 100MS FADES"}</span>
+                <span>MUTED · VOICE ANALYSIS OFF</span>
               </div>
               {reelState === "rendering" && <div className="gameplay-render-progress"><div><span style={{ width: `${Math.round(reelProgress * 100)}%` }} /></div><p>Rendering locally · {Math.round(reelProgress * 100)}%</p></div>}
             </div>
