@@ -108,6 +108,9 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(realWorkbench, /Gameplay Search/);
   assert.match(realWorkbench, /Squad Reconstruction/);
   assert.match(realWorkbench, /"gameplay-search"/);
+  assert.match(realWorkbench, /hidden=\{mode !== "gameplay-search"\}/);
+  assert.match(realWorkbench, /hidden=\{mode !== "squad-reconstruction"\}/);
+  assert.doesNotMatch(realWorkbench, /mode === "gameplay-search" \? <GameplaySearchWorkbench/);
   const gameplayWorkbench = await readFile(
     new URL("app/components/gameplay-search-workbench.tsx", projectRoot),
     "utf8",

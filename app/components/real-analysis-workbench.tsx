@@ -681,7 +681,12 @@ export function RealAnalysisWorkbench() {
           <small>Link the same session across 2–4 POVs</small>
         </button>
       </nav>
-      {mode === "gameplay-search" ? <GameplaySearchWorkbench /> : <SquadAnalysisWorkbench />}
+      <div hidden={mode !== "gameplay-search"}>
+        <GameplaySearchWorkbench />
+      </div>
+      <div hidden={mode !== "squad-reconstruction"}>
+        <SquadAnalysisWorkbench />
+      </div>
     </>
   );
 }
