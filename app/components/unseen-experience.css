@@ -46,7 +46,7 @@
   min-height: 78px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: center;
   border-bottom: 1px solid var(--line);
 }
@@ -396,10 +396,6 @@
 .ask-orbit i:nth-child(1) { top: 2px; left: 22px; } .ask-orbit i:nth-child(2) { right: 2px; top: 29px; } .ask-orbit i:nth-child(3) { bottom: 4px; left: 8px; }
 .ask-intro h2 { position: relative; z-index: 1; margin-top: 10px; font-size: clamp(2.2rem, 4vw, 4.2rem); line-height: .96; letter-spacing: -.06em; }
 .ask-intro > p { position: relative; z-index: 1; max-width: 440px; margin-top: 19px; color: #8995a6; font-size: .76rem; line-height: 1.6; }
-.privacy-note { position: relative; z-index: 1; width: max-content; max-width: 100%; margin-top: 41px; padding: 12px 14px; display: flex; align-items: center; gap: 11px; border-left: 2px solid #51d8b1; background: rgba(81,216,177,.045); }
-.privacy-note > span { color: #51d8b1; }
-.privacy-note p { display: grid; gap: 2px; color: #6f7b8d; font-size: .57rem; }
-.privacy-note strong { color: #aeb8c4; font-size: .62rem; }
 .chat-card { align-self: center; width: calc(100% - 60px); max-width: 700px; margin: 34px 34px 34px 0; justify-self: end; background: rgba(7,10,15,.9); border: 1px solid rgba(255,255,255,.1); box-shadow: 0 28px 70px rgba(0,0,0,.4); }
 .chat-header { min-height: 67px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .chat-header > div { display: flex; align-items: center; gap: 10px; }
@@ -535,7 +531,6 @@
   .timeline-legend { flex-wrap: wrap; }
   .ask-intro { padding: 42px 24px; min-height: 390px; }
   .ask-intro h2 { font-size: 2.65rem; }
-  .privacy-note { margin-top: 28px; }
   .chat-messages { height: 260px; }
   .suggested-questions button { width: 100%; }
   .unseen-footer > span { font-size: .43rem; }
