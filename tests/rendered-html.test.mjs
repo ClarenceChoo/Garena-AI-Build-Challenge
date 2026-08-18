@@ -87,18 +87,14 @@ test("server-renders the finished UNSEEN product shell", async () => {
   );
   assert.match(experience, /REAL INPUTS \+ HONEST SIMULATION/);
   assert.match(experience, /MEDIA → EVIDENCE/);
-  assert.match(experience, /PRELOADED REAL GARENA FOOTAGE/);
   assert.match(experience, /FULL MULTI-POV INTERACTION SIMULATOR/);
   assert.match(experience, /Launch interaction simulator/);
   assert.match(experience, /SIMULATED PRODUCT FOOTAGE/);
-  assert.match(experience, /DFxrTiUqpCM/);
-  assert.match(experience, /Free Fire Esports Official/);
-  assert.match(experience, /REAL FOOTAGE \/ BROADCAST-LIMITED DEMO/);
-  assert.equal(
-    (html.match(/youtube-nocookie\.com\/embed\/DFxrTiUqpCM/g) ?? []).length,
-    3,
-    "the zero-upload demo should render three real official Free Fire clips",
+  assert.doesNotMatch(
+    experience,
+    /PRELOADED REAL GARENA FOOTAGE|DFxrTiUqpCM|Free Fire Esports Official|REAL FOOTAGE \/ BROADCAST-LIMITED DEMO/,
   );
+  assert.doesNotMatch(html, /youtube-nocookie\.com\/embed\/DFxrTiUqpCM/);
   const realWorkbench = await readFile(
     new URL("app/components/real-analysis-workbench.tsx", projectRoot),
     "utf8",

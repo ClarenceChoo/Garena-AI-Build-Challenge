@@ -62,76 +62,6 @@ interface TimelineItem {
   category: string;
 }
 
-type OfficialScanState = "idle" | "running" | "complete";
-
-interface OfficialGarenaClip {
-  id: "setup" | "triple" | "reaction";
-  index: string;
-  startSeconds: number;
-  endSeconds: number;
-  sourceLabel: string;
-  title: string;
-  beat: string;
-  summary: string;
-  signals: string[];
-}
-
-const OFFICIAL_GARENA_VIDEO_ID = "DFxrTiUqpCM";
-
-const OFFICIAL_GARENA_CLIPS: OfficialGarenaClip[] = [
-  {
-    id: "setup",
-    index: "01",
-    startSeconds: 21_950,
-    endSeconds: 21_980,
-    sourceLabel: "BROADCAST CONTEXT",
-    title: "Match-point setup",
-    beat: "6:05:57 · GAME 3 / ROUND 10",
-    summary:
-      "The broadcast follows AG.DEW with Fluxo leading the positional fight and All Gamers one round from the map.",
-    signals: [
-      "HUD OCR · GAME 3, ROUND 10/11, FX 4 — AG 5",
-      "State detection · MATCH POINT banner is active",
-      "Player focus · broadcast perspective isolates AG.DEW",
-      "Caption signal · commentary calls out Fluxo's positional edge",
-    ],
-  },
-  {
-    id: "triple",
-    index: "02",
-    startSeconds: 21_970,
-    endSeconds: 22_000,
-    sourceLabel: "AG.DEW GAMEPLAY POV",
-    title: "The clutch turns",
-    beat: "6:06:20 · COMBAT INFLECTION",
-    summary:
-      "At one second remaining, the combat overlay credits AG.DEW with a triple kill and the caster reaction spikes.",
-    signals: [
-      "Combat overlay · TRIPLE KILL credited to AG.DEW",
-      "Timer OCR · 00:01 remains on the round clock",
-      "Player-state fusion · final opposition silhouette stays active",
-      "Audio + captions · caster reacts, ‘Oh, dude, what?’",
-    ],
-  },
-  {
-    id: "reaction",
-    index: "03",
-    startSeconds: 21_985,
-    endSeconds: 22_015,
-    sourceLabel: "ALL GAMERS TEAM CAM",
-    title: "The payoff lands",
-    beat: "6:06:29 · LIVE TEAM REACTION",
-    summary:
-      "The feed cuts from gameplay to the All Gamers stage as the broadcast confirms an ace on map three.",
-    signals: [
-      "Scene transition · gameplay cuts to the All Gamers stage",
-      "Caption signal · ‘finish line with an ace on map three’",
-      "Reaction detection · players rise as stage effects fire",
-      "Story link · triple kill → ace → team celebration",
-    ],
-  },
-];
-
 const initialMessages: ChatMessage[] = [
   {
     id: "welcome",
@@ -172,138 +102,6 @@ function errorMessage(payload: unknown, fallback: string) {
 async function parseErrorResponse(response: Response, fallback: string) {
   const payload = await response.json().catch(() => null);
   return errorMessage(payload, fallback);
-}
-
-function OfficialGarenaFootage() {
-  const [activeClipId, setActiveClipId] = useState<OfficialGarenaClip["id"]>("triple");
-  const [scanState, setScanState] = useState<OfficialScanState>("idle");
-  const [scanProgress, setScanProgress] = useState(0);
-  const activeClip =
-    OFFICIAL_GARENA_CLIPS.find((clip) => clip.id === activeClipId) ??
-    OFFICIAL_GARENA_CLIPS[1];
-  const visibleSignalCount =
-    scanState === "complete"
-      ? activeClip.signals.length
-      : scanState === "running"
-        ? Math.max(1, Math.ceil((scanProgress / 100) * activeClip.signals.length))
-        : 0;
-  const embedUrl = (clip: OfficialGarenaClip) =>
-    `https://www.youtube-nocookie.com/embed/${OFFICIAL_GARENA_VIDEO_ID}?start=${clip.startSeconds}&end=${clip.endSeconds}&rel=0&modestbranding=1&playsinline=1`;
-
-  function selectClip(id: OfficialGarenaClip["id"]) {
-    setActiveClipId(id);
-    setScanState("idle");
-    setScanProgress(0);
-  }
-
-  async function runOfficialScan() {
-    if (scanState === "running") return;
-    setScanState("running");
-    setScanProgress(8);
-    for (const nextProgress of [31, 57, 78, 100]) {
-      await new Promise((resolve) => setTimeout(resolve, 280));
-      setScanProgress(nextProgress);
-    }
-    setScanState("complete");
-  }
-
-  return (
-    <section className="official-footage" aria-labelledby="official-footage-title">
-      <div className="official-footage-heading">
-        <div>
-          <span className="eyebrow">01 · PRELOADED REAL GARENA FOOTAGE</span>
-          <h2 id="official-footage-title">Three authentic Free Fire scenes. One real-match story.</h2>
-        </div>
-        <div className="official-source-lockup">
-          <span><i /> OFFICIAL SOURCE</span>
-          <strong>Free Fire Esports Official</strong>
-          <small>FFWS Global Finals 2025 · Clash Squad</small>
-        </div>
-      </div>
-
-      <div className="official-footage-grid">
-        <div className="official-player-column">
-          <div className="official-preloaded-grid" role="group" aria-label="Preloaded official Free Fire clips">
-            {OFFICIAL_GARENA_CLIPS.map((clip) => (
-              <article className={activeClip.id === clip.id ? "active" : ""} key={clip.id}>
-                <div className="official-player-wrap">
-                  <iframe
-                    src={embedUrl(clip)}
-                    title={`Official Free Fire gameplay — ${clip.title}`}
-                    loading="lazy"
-                    allow="accelerometer; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                  />
-                  <span className="official-player-badge"><i /> REAL GARENA FOOTAGE</span>
-                  <span className="official-player-time">{clip.endSeconds - clip.startSeconds} SEC</span>
-                </div>
-                <button
-                  type="button"
-                  aria-pressed={activeClip.id === clip.id}
-                  onClick={() => selectClip(clip.id)}
-                >
-                  <span>INPUT {clip.index} · {clip.sourceLabel}</span>
-                  <strong>{clip.title}</strong>
-                  <small>{clip.beat}</small>
-                </button>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <aside className="official-analysis" aria-live="polite">
-          <div className="official-analysis-kicker">
-            <span><i /> VERIFIED CLIP TRACE</span>
-            <code>GAR-FFWS-2025-06:06</code>
-          </div>
-          <h3>{activeClip.title}</h3>
-          <p>{activeClip.summary}</p>
-
-          <button
-            className="official-scan-button"
-            type="button"
-            onClick={() => void runOfficialScan()}
-            disabled={scanState === "running"}
-          >
-            {scanState === "running"
-              ? `Analyzing real clip · ${scanProgress}%`
-              : scanState === "complete"
-                ? "Replay evidence scan"
-                : "Analyze selected real clip"}
-          </button>
-
-          <div className="official-scan-track" aria-hidden="true">
-            <i style={{ width: `${scanProgress}%` }} />
-          </div>
-
-          <div className={`official-signals signals-${scanState}`}>
-            {activeClip.signals.map((signal, index) => (
-              <div key={signal} className={index < visibleSignalCount ? "observed" : ""}>
-                <span>{index < visibleSignalCount ? "✓" : String(index + 1).padStart(2, "0")}</span>
-                <p>{signal}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="official-disclosure">
-            <strong>REAL FOOTAGE / BROADCAST-LIMITED DEMO</strong>
-            <p>
-              All three inputs are embedded from Garena’s verified Free Fire Esports channel and
-              come from the same official final. They demonstrate cross-scene reconstruction, not
-              synchronized private squad recordings or private comms that the broadcast never published.
-            </p>
-            <a
-              href={`https://www.youtube.com/watch?v=${OFFICIAL_GARENA_VIDEO_ID}&t=${activeClip.startSeconds}s`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              View official source ↗
-            </a>
-          </div>
-        </aside>
-      </div>
-    </section>
-  );
 }
 
 interface UnseenExperienceProps {
@@ -882,18 +680,16 @@ export function UnseenExperience({ viewer, signInPath, signOutPath }: UnseenExpe
 
       <div className="fixture-banner" role="note">
         <span>REAL INPUTS + HONEST SIMULATION</span>
-        Uploads run live OpenAI analysis, and the preloaded Free Fire clips below are real Garena footage. The later squad-only features remain clearly labeled simulation because the broadcast does not publish private synchronized POVs or comms.
+        Uploaded gameplay runs live OpenAI analysis. The squad-only reconstruction remains clearly labeled simulation because private synchronized POVs and comms are not included in public broadcasts.
       </div>
 
       <RealAnalysisWorkbench />
-
-      <OfficialGarenaFootage />
 
       {session && (
         <section className="media-intake" aria-labelledby="media-intake-title">
           <div className="media-intake-heading">
             <div>
-              <span className="eyebrow">02 · FULL MULTI-POV INTERACTION SIMULATOR</span>
+              <span className="eyebrow">01 · FULL MULTI-POV INTERACTION SIMULATOR</span>
               <h2 id="media-intake-title">Try the squad-only features a broadcast cannot expose.</h2>
             </div>
             <p>
