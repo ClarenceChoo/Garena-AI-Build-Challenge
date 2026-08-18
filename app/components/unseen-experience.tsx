@@ -1,25 +1,28 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type {
-  ApiError,
-  AskCitation,
-  AskDemoResponse,
-  DemoSessionResponse,
-  UnseenSession,
-} from "@/lib/unseen-types";
-import { RealAnalysisWorkbench } from "./real-analysis-workbench";
+  GameplaySearchHit,
+  GameplaySearchResponse,
+} from "@/lib/gameplay-search-types";
+import type { ApiError } from "@/lib/unseen-types";
+import {
+  RealAnalysisWorkbench,
+} from "./real-analysis-workbench";
+import type { GameplayIndexSnapshot } from "./gameplay-search-workbench";
 import "./unseen-experience.css";
-
-interface AskReasoningResponse {
-  version: string;
-}
 
 interface ChatMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
-  citations?: AskCitation[];
+  citations?: GameplaySearchHit[];
 }
 
 interface UnseenExperienceProps {
@@ -28,11 +31,18 @@ interface UnseenExperienceProps {
   signOutPath: string;
 }
 
+const EMPTY_INDEX: GameplayIndexSnapshot = Object.freeze({
+  clips: [],
+  segments: [],
+  eventCount: 0,
+  isReady: false,
+});
+
 const initialMessages: ChatMessage[] = [
   {
     id: "welcome",
     role: "assistant",
-    content: "Ask what happened off-screen. I’ll answer only from permitted session evidence.",
+    content: "Index footage above, then ask about any moment. I’ll search only your verified gameplay events.",
   },
 ];
 
@@ -47,52 +57,61 @@ async function parseErrorResponse(response: Response, fallback: string) {
   return errorMessage(payload, fallback);
 }
 
+function formatTime(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function initials(name: string | undefined): string {
+  const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return (parts.map((part) => part[0]).join("").slice(0, 2) || "YOU").toUpperCase();
+}
+
 export function UnseenExperience({
   viewer,
   signInPath,
   signOutPath,
 }: UnseenExperienceProps) {
-  const [session, setSession] = useState<UnseenSession | null>(null);
-  const [reasoning, setReasoning] = useState<AskReasoningResponse | null>(null);
+  const [gameplayIndex, setGameplayIndex] = useState<GameplayIndexSnapshot>(EMPTY_INDEX);
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [question, setQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
   const [chatError, setChatError] = useState("");
   const requestCounter = useRef(0);
+  const indexReadyRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadAskSession() {
-      try {
-        const [sessionResponse, reasoningResponse] = await Promise.all([
-          fetch("/api/demo/session", { cache: "no-store" }),
-          fetch("/api/demo/reasoning", { cache: "no-store" }),
-        ]);
-        if (!sessionResponse.ok || !reasoningResponse.ok) {
-          throw new Error("Ask UNSEEN evidence could not be loaded.");
-        }
-        const sessionPayload = (await sessionResponse.json()) as DemoSessionResponse;
-        const reasoningPayload = (await reasoningResponse.json()) as AskReasoningResponse;
-        if (cancelled) return;
-        setSession(sessionPayload.session);
-        setReasoning(reasoningPayload);
-      } catch (error) {
-        if (!cancelled) {
-          setChatError(error instanceof Error ? error.message : "Ask UNSEEN is unavailable.");
-        }
-      }
+  const handleIndexChange = useCallback((snapshot: GameplayIndexSnapshot) => {
+    if (indexReadyRef.current && !snapshot.isReady) {
+      setMessages(initialMessages);
+      setQuestion("");
+      setChatError("");
     }
-
-    void loadAskSession();
-    return () => {
-      cancelled = true;
-    };
+    indexReadyRef.current = snapshot.isReady;
+    setGameplayIndex(snapshot);
   }, []);
+
+  const suggestedQuestions = useMemo(() => {
+    if (!gameplayIndex.isReady) return [];
+    const events = gameplayIndex.segments
+      .flatMap((segment) => segment.events)
+      .sort((a, b) => b.importance - a.importance || b.confidence - a.confidence);
+    const strongest = events[0];
+    const next = events.find((event) => event.id !== strongest?.id);
+    const actor = events.flatMap((event) => event.actors).find((name) => name.trim());
+    return [
+      strongest ? `What happened during “${strongest.title}”?` : "What was the most important moment?",
+      actor ? `What did ${actor} do in this gameplay?` : next ? `Find “${next.title}”.` : "Which event had the strongest evidence?",
+    ];
+  }, [gameplayIndex.isReady, gameplayIndex.segments]);
 
   async function askUnseen(prompt: string) {
     const cleanPrompt = prompt.trim();
-    if (!cleanPrompt || isAsking || !session || !reasoning) return;
+    if (!cleanPrompt || isAsking || !gameplayIndex.isReady) return;
 
     requestCounter.current += 1;
     const requestId = String(requestCounter.current);
@@ -105,35 +124,38 @@ export function UnseenExperience({
     setIsAsking(true);
 
     try {
-      const response = await fetch("/api/demo/ask", {
+      const response = await fetch("/api/analyze/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionId: session.id,
-          question: cleanPrompt,
-          viewerId: session.focusParticipantId,
+          query: cleanPrompt,
+          clips: gameplayIndex.clips,
+          segments: gameplayIndex.segments,
         }),
       });
       if (!response.ok) {
         throw new Error(
-          await parseErrorResponse(response, "UNSEEN could not answer from this session’s evidence."),
+          await parseErrorResponse(response, "UNSEEN could not search the current gameplay index."),
         );
       }
-      const answer = (await response.json()) as AskDemoResponse;
+      const answer = (await response.json()) as GameplaySearchResponse;
+      if (answer.api.real !== true || !answer.api.responseId) {
+        throw new Error("The index search response was not verifiable.");
+      }
       setMessages((current) => [
         ...current,
         {
           id: `assistant-${requestId}`,
           role: "assistant",
-          content: answer.answer,
-          citations: answer.citations,
+          content: answer.summary,
+          citations: answer.answerType === "matches" ? answer.hits : [],
         },
       ]);
     } catch (error) {
       setChatError(
         error instanceof Error
           ? error.message
-          : "UNSEEN could not answer from this session’s evidence.",
+          : "UNSEEN could not search the current gameplay index.",
       );
     } finally {
       setIsAsking(false);
@@ -145,16 +167,21 @@ export function UnseenExperience({
     void askUnseen(question);
   }
 
-  const viewerInitials = session?.participants.find(
-    (participant) => participant.id === session.focusParticipantId,
-  )?.avatarInitials ?? "AE";
-  const consentedCount = session?.participants.filter(
-    (participant) =>
-      participant.consent.gameplayRecording === "granted" &&
-      participant.consent.aiAnalysis === "granted" &&
-      participant.consent.squadSharing === "granted",
-  ).length ?? 0;
-  const askReady = Boolean(session && reasoning);
+  function playIndexedMoment(hit: GameplaySearchHit) {
+    const video = document.getElementById(`gameplay-video-${hit.clipId}`);
+    if (!(video instanceof HTMLVideoElement)) {
+      setChatError("The source video for this indexed event is no longer available in this tab.");
+      return;
+    }
+    const contextSeconds = Math.max(0, (hit.startMs - 2_000) / 1_000);
+    const maximum = Number.isFinite(video.duration) ? Math.max(0, video.duration - 0.05) : contextSeconds;
+    video.currentTime = Math.min(contextSeconds, maximum);
+    video.scrollIntoView({ behavior: "smooth", block: "center" });
+    void video.play().catch(() => undefined);
+  }
+
+  const viewerInitials = initials(viewer?.displayName);
+  const askReady = gameplayIndex.isReady && gameplayIndex.eventCount > 0;
 
   return (
     <main className="unseen-shell">
@@ -174,8 +201,8 @@ export function UnseenExperience({
               <a href={viewer ? signOutPath : signInPath}>{viewer ? "Sign out" : "Sign in with ChatGPT"}</a>
             </div>
           </div>
-          <div className="consent-summary" aria-label={`${consentedCount} players opted in`}>
-            <span aria-hidden="true">✓</span> {consentedCount}/{session?.participants.length ?? 3} opted in
+          <div className="index-summary" aria-label={`${gameplayIndex.eventCount} indexed gameplay events`}>
+            <span aria-hidden="true">✓</span> {askReady ? `${gameplayIndex.eventCount} events indexed` : "Index not ready"}
           </div>
           <button className="reconstruct-button" type="button" onClick={() => document.getElementById("live-analysis")?.scrollIntoView({ behavior: "smooth" })}>
             <span className="button-spark" aria-hidden="true">✦</span>Analyze clips
@@ -183,20 +210,20 @@ export function UnseenExperience({
         </div>
       </header>
 
-      <RealAnalysisWorkbench />
+      <RealAnalysisWorkbench onIndexChange={handleIndexChange} />
 
       <section className={`ask-section ${!askReady ? "ask-locked" : ""}`} aria-labelledby="ask-title">
         <div className="ask-intro">
           <span className="ask-orbit" aria-hidden="true"><i /><i /><i /></span>
-          <span className="eyebrow">CONVERSATIONAL SESSION SEARCH</span>
-          <h2 id="ask-title">Ask the game what<br />you never saw.</h2>
-          <p>In the simulator, answers cite synchronized mock squad recordings. Real uploads use only selected gameplay frames extracted in your browser.</p>
+          <span className="eyebrow">LIVE INDEX SEARCH</span>
+          <h2 id="ask-title">Ask your indexed<br />gameplay.</h2>
+          <p>Questions run against the verified event index built from your uploaded footage. Every match links back to its real source timestamp.</p>
         </div>
 
         <div className="chat-card">
           <div className="chat-header">
-            <div><span className="ai-presence" aria-hidden="true">U</span><p><strong>Ask UNSEEN</strong><small>{reasoning ? `${reasoning.version} · simulated evidence` : "Loading evidence…"}</small></p></div>
-            <span className="online-status"><i /> {askReady ? "READY" : "LOADING"}</span>
+            <div><span className="ai-presence" aria-hidden="true">U</span><p><strong>Ask UNSEEN</strong><small>{askReady ? `${gameplayIndex.eventCount} verified events · live index` : "Index footage above to enable search"}</small></p></div>
+            <span className="online-status"><i /> {askReady ? "READY" : "INDEX FIRST"}</span>
           </div>
 
           <div className="chat-messages" aria-live="polite" aria-busy={isAsking}>
@@ -206,12 +233,15 @@ export function UnseenExperience({
                 <div>
                   <p>{message.content}</p>
                   {message.citations && message.citations.length > 0 && (
-                    <div className="chat-sources" aria-label="Answer evidence citations">
-                      {message.citations.map((citation) => (
-                        <button type="button" key={citation.evidenceId} onClick={() => setChatError(`${citation.label} · ${citation.timestampLabel} · ${citation.evidenceId}`)}>
-                          <span>⌁ {citation.timestampLabel}</span>{citation.label}<i aria-hidden="true">↗</i>
-                        </button>
-                      ))}
+                    <div className="chat-sources" aria-label="Indexed gameplay citations">
+                      {message.citations.map((citation) => {
+                        const clip = gameplayIndex.clips.find((candidate) => candidate.id === citation.clipId);
+                        return (
+                          <button type="button" key={citation.eventId} onClick={() => playIndexedMoment(citation)}>
+                            <span>⌁ {formatTime(citation.startMs)}</span>{clip?.label ?? citation.title} · {citation.title}<i aria-hidden="true">↗</i>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -220,13 +250,13 @@ export function UnseenExperience({
             {isAsking && (
               <div className="chat-message message-assistant typing-message">
                 <span className="message-author">U</span>
-                <div><span /><span /><span /><small>Tracing permitted evidence…</small></div>
+                <div><span /><span /><span /><small>Searching verified events…</small></div>
               </div>
             )}
           </div>
 
-          <div className="suggested-questions" aria-label="Suggested questions">
-            {(session?.suggestedQuestions ?? []).slice(0, 2).map((suggestion) => (
+          <div className="suggested-questions" aria-label="Questions generated from the current index">
+            {suggestedQuestions.map((suggestion) => (
               <button type="button" key={suggestion} onClick={() => void askUnseen(suggestion)} disabled={isAsking || !askReady}>
                 <span aria-hidden="true">✦</span>{suggestion}
               </button>
@@ -234,14 +264,14 @@ export function UnseenExperience({
           </div>
 
           <form className="ask-form" onSubmit={submitQuestion}>
-            <label htmlFor="unseen-question" className="sr-only">Ask a question about this game session</label>
-            <input id="unseen-question" type="text" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={askReady ? "Ask what happened in this session…" : "Loading session evidence…"} autoComplete="off" maxLength={280} disabled={isAsking || !askReady} />
-            <button type="submit" disabled={!question.trim() || isAsking || !askReady} aria-label="Send question"><span aria-hidden="true">↗</span></button>
+            <label htmlFor="unseen-question" className="sr-only">Search the indexed gameplay</label>
+            <input id="unseen-question" type="text" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={askReady ? "Ask what happened in the indexed footage…" : "Index gameplay above to start asking…"} autoComplete="off" maxLength={500} disabled={isAsking || !askReady} />
+            <button type="submit" disabled={!question.trim() || isAsking || !askReady} aria-label="Search indexed gameplay"><span aria-hidden="true">↗</span></button>
           </form>
           {chatError && (
-            <div className="chat-error" role="alert"><strong>Evidence boundary</strong><span>{chatError}</span><button type="button" onClick={() => setChatError("")}>Dismiss</button></div>
+            <div className="chat-error" role="alert"><strong>Index search</strong><span>{chatError}</span><button type="button" onClick={() => setChatError("")}>Dismiss</button></div>
           )}
-          <p className="chat-disclaimer">Simulated squad media · grounded evidence only · explicit abstention when support is insufficient.</p>
+          <p className="chat-disclaimer">Current in-memory index · evidence-linked timestamps · explicit insufficient-evidence responses.</p>
         </div>
       </section>
 

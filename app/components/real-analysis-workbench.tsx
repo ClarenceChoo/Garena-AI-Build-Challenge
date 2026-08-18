@@ -1,7 +1,14 @@
 "use client";
 
-import { GameplaySearchWorkbench } from "./gameplay-search-workbench";
+import {
+  GameplaySearchWorkbench,
+  type GameplayIndexSnapshot,
+} from "./gameplay-search-workbench";
 
-export function RealAnalysisWorkbench() {
-  return <GameplaySearchWorkbench />;
+interface RealAnalysisWorkbenchProps {
+  onIndexChange?: (snapshot: GameplayIndexSnapshot) => void;
+}
+
+export function RealAnalysisWorkbench({ onIndexChange }: RealAnalysisWorkbenchProps) {
+  return <GameplaySearchWorkbench onIndexChange={onIndexChange} />;
 }
