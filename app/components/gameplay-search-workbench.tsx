@@ -164,6 +164,7 @@ export function GameplaySearchWorkbench() {
   const [audioDeclaration, setAudioDeclaration] = useState<GameplayAudioDeclaration | "">("");
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
+  const [backendFailed, setBackendFailed] = useState(false);
   const [state, setState] = useState<WorkbenchState>("idle");
   const [message, setMessage] = useState("Add up to four gameplay videos to build a private, temporary index.");
   const [jobs, setJobs] = useState<SegmentJob[]>([]);
@@ -207,14 +208,11 @@ export function GameplaySearchWorkbench() {
       .then((status) => {
         if (!canceled) {
           setBackend(status);
-          if (!status.configured) setMessage("Add OPENAI_API_KEY to enable gameplay indexing.");
+          setBackendFailed(false);
         }
       })
       .catch(() => {
-        if (!canceled) {
-          setBackend(null);
-          setMessage("Backend status is unavailable. Restart the development server and try again.");
-        }
+        if (!canceled) setBackendFailed(true);
       });
     return () => {
       canceled = true;
@@ -633,6 +631,13 @@ export function GameplaySearchWorkbench() {
             browser; only selected evidence images and explicitly consented audio reach OpenAI.
           </p>
         </div>
+        <aside className={`gameplay-backend ${backend?.configured ? "ready" : backendFailed ? "error" : "offline"}`}>
+          <strong>{backend?.configured ? "LIVE SEARCH BACKEND READY" : backendFailed ? "BACKEND STATUS UNREACHABLE" : "OPENAI KEY REQUIRED"}</strong>
+          <span>{backend?.configured ? `${backend.models?.search ?? backend.models?.vision} search` : "Fail-closed until configured"}</span>
+          <span>Index clears when this page reloads</span>
+          <span>Every result cites real source evidence</span>
+          <span>No raw gameplay upload</span>
+        </aside>
       </div>
 
       <div className="gameplay-flow" aria-label="Gameplay search stages">
