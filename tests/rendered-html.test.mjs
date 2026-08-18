@@ -126,7 +126,10 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /\/api\/analyze\/index-segment/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/search/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
-  assert.match(gameplayWorkbench, /\/api\/analyze\/transcribe/);
+  assert.doesNotMatch(gameplayWorkbench, /\/api\/analyze\/transcribe/);
+  assert.doesNotMatch(gameplayWorkbench, /voices_consented|voices_unconsented|Required audio declaration/);
+  assert.match(gameplayWorkbench, /Voice audio is never uploaded or transcribed/);
+  assert.match(gameplayWorkbench, /renderGameplayReel\([\s\S]*?plan,[\s\S]*?false,/);
   assert.match(gameplayWorkbench, /insufficient_evidence/);
   assert.match(gameplayWorkbench, /MAXIMUM_INDEX_CONCURRENCY = 4/);
   assert.match(gameplayWorkbench, /navigator\.hardwareConcurrency/);

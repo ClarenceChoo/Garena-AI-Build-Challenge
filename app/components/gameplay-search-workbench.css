@@ -41,14 +41,10 @@
 .gameplay-session-meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 12px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.1); }
 .gameplay-session-meter span { display: grid; gap: 5px; padding: 13px 15px; background: #0c0e13; color: #686e7a; font: 700 9px/1 var(--font-geist-mono); }
 .gameplay-session-meter strong { color: #e8e9ec; font-size: 13px; }
-.gameplay-audio-declaration { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 20px 0 0; padding: 22px 0 0; border: 0; border-top: 1px solid rgba(255,255,255,.1); }
-.gameplay-audio-declaration legend { float: left; grid-column: 1 / -1; width: 100%; margin-bottom: 12px; color: #d9dce1; font: 800 10px/1 var(--font-geist-mono); letter-spacing: .1em; text-transform: uppercase; }
-.gameplay-audio-declaration label { display: flex; gap: 10px; padding: 15px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.025); cursor: pointer; }
-.gameplay-audio-declaration label.selected { border-color: rgba(53,228,255,.44); background: rgba(53,228,255,.055); }
-.gameplay-audio-declaration input, .gameplay-permission input { accent-color: #ed1c2e; }
-.gameplay-audio-declaration span { display: grid; gap: 6px; }
-.gameplay-audio-declaration strong { color: #e3e5e9; font-size: 12px; }
-.gameplay-audio-declaration small { color: #7f8490; font-size: 10px; line-height: 1.45; }
+.gameplay-audio-disabled { display: flex; gap: 12px; align-items: center; margin-top: 20px; padding: 15px; border: 1px solid rgba(53,228,255,.2); background: rgba(53,228,255,.035); }
+.gameplay-audio-disabled strong { flex: 0 0 auto; color: #35e4ff; font: 800 9px/1 var(--font-geist-mono); letter-spacing: .1em; }
+.gameplay-audio-disabled span { color: #858a95; font-size: 11px; line-height: 1.5; }
+.gameplay-permission input { accent-color: #ed1c2e; }
 .gameplay-permission { display: flex; gap: 11px; align-items: flex-start; margin-top: 10px; padding: 15px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.025); color: #858a95; cursor: pointer; font-size: 12px; line-height: 1.5; }
 .gameplay-permission input { margin-top: 3px; }
 .gameplay-permission strong { color: #dfe1e5; }
@@ -142,7 +138,7 @@
 
 @media (max-width: 720px) {
   .gameplay-search { width: calc(100% - 20px); padding: 22px 15px; }
-  .gameplay-search-hero, .gameplay-source-grid, .gameplay-audio-declaration, .gameplay-index-context, .gameplay-reel-controls { grid-template-columns: 1fr; }
+  .gameplay-search-hero, .gameplay-source-grid, .gameplay-index-context, .gameplay-reel-controls { grid-template-columns: 1fr; }
   .gameplay-search-hero { align-items: start; }
   .gameplay-session-meter { grid-template-columns: repeat(2, 1fr); }
   .gameplay-index-bar, .gameplay-search-panel > div:first-child, .gameplay-reel-heading { align-items: stretch; flex-direction: column; }
