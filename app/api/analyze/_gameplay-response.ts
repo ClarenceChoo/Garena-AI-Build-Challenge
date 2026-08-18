@@ -6,17 +6,20 @@ export function gameplayErrorResponse(
   code: GameplaySearchApiErrorCode,
   message: string,
   requestId = "",
+  retryAfterMs = 0,
 ): Response {
+  const headers: Record<string, string> = { "Cache-Control": "no-store" };
+  if (retryAfterMs > 0) headers["Retry-After"] = String(Math.max(1, Math.ceil(retryAfterMs / 1_000)));
   return Response.json(
     { error: { code, message, ...(requestId ? { requestId } : {}) } },
-    { status, headers: { "Cache-Control": "no-store" } },
+    { status, headers },
   );
 }
 
 export function gameplayRouteError(error: unknown, fallback: string): Response {
   if (error instanceof TypeError) return gameplayErrorResponse(400, "INVALID_REQUEST", error.message);
   if (error instanceof GameplaySearchOpenAIError) {
-    return gameplayErrorResponse(error.status, error.code, error.message, error.requestId);
+    return gameplayErrorResponse(error.status, error.code, error.message, error.requestId, error.retryAfterMs);
   }
   return gameplayErrorResponse(502, "OPENAI_ERROR", fallback);
 }
