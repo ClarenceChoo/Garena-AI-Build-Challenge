@@ -85,10 +85,15 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/unseen-experience.tsx", projectRoot),
     "utf8",
   );
-  assert.match(experience, /<RealAnalysisWorkbench \/>/);
-  assert.match(experience, /Ask the game what/);
-  assert.match(experience, /CONVERSATIONAL SESSION SEARCH/);
-  assert.match(experience, /In the simulator, answers cite/);
+  assert.match(experience, /<RealAnalysisWorkbench onIndexChange=\{handleIndexChange\} \/>/);
+  assert.match(experience, /Ask your indexed/);
+  assert.match(experience, /LIVE INDEX SEARCH/);
+  assert.match(experience, /\/api\/analyze\/search/);
+  assert.match(experience, /clips: gameplayIndex\.clips/);
+  assert.match(experience, /segments: gameplayIndex\.segments/);
+  assert.match(experience, /playIndexedMoment/);
+  assert.match(experience, /gameplay-video-/);
+  assert.doesNotMatch(experience, /\/api\/demo\/(?:ask|session|reasoning)|simulated evidence|simulated squad media/i);
   assert.doesNotMatch(experience, /Consent-aware by design/);
   assert.doesNotMatch(experience, /The game you won|The story you missed/);
   assert.doesNotMatch(experience, /REAL INPUTS \+ HONEST SIMULATION/);
@@ -102,7 +107,7 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/real-analysis-workbench.tsx", projectRoot),
     "utf8",
   );
-  assert.match(realWorkbench, /return <GameplaySearchWorkbench \/>/);
+  assert.match(realWorkbench, /return <GameplaySearchWorkbench onIndexChange=\{onIndexChange\} \/>/);
   assert.doesNotMatch(realWorkbench, /Squad Reconstruction|SquadAnalysisWorkbench|analysis-mode-tabs/);
   assert.doesNotMatch(experience, /opted-in audio supplied by your team/);
   const gameplayWorkbench = await readFile(
@@ -120,6 +125,8 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.doesNotMatch(gameplayWorkbench, /\/api\/analyze\/transcribe/);
   assert.doesNotMatch(gameplayWorkbench, /voices_consented|voices_unconsented|Required audio declaration/);
   assert.match(gameplayWorkbench, /Voice audio is never uploaded or transcribed/);
+  assert.match(gameplayWorkbench, /onIndexChange\?\.\(\{/);
+  assert.match(gameplayWorkbench, /id=\{`gameplay-video-\$\{clip\.id\}`\}/);
   assert.match(gameplayWorkbench, /renderGameplayReel\([\s\S]*?plan,[\s\S]*?false,/);
   assert.match(gameplayWorkbench, /insufficient_evidence/);
   assert.match(gameplayWorkbench, /MAXIMUM_INDEX_CONCURRENCY = 4/);

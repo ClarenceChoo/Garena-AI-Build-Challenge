@@ -29,6 +29,17 @@ import "./gameplay-search-workbench.css";
 type IndexStatus = "pending" | "running" | "complete" | "failed";
 type WorkbenchState = "idle" | "indexing" | "ready" | "partial" | "error";
 
+export interface GameplayIndexSnapshot {
+  clips: GameplayClipMetadata[];
+  segments: GameplaySegmentIndex[];
+  eventCount: number;
+  isReady: boolean;
+}
+
+interface GameplaySearchWorkbenchProps {
+  onIndexChange?: (snapshot: GameplayIndexSnapshot) => void;
+}
+
 interface GameplayClip extends GameplayClipMetadata {
   file: File;
   url: string;
@@ -156,7 +167,7 @@ function dominantContext(segments: GameplaySegmentIndex[]): { game: string; mode
   };
 }
 
-export function GameplaySearchWorkbench() {
+export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkbenchProps = {}) {
   const [clips, setClips] = useState<GameplayClip[]>([]);
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
@@ -241,6 +252,14 @@ export function GameplaySearchWorkbench() {
     durationMs,
     sizeBytes,
   })), [clips]);
+  useEffect(() => {
+    onIndexChange?.({
+      clips: metadata,
+      segments,
+      eventCount,
+      isReady: (state === "ready" || state === "partial") && segments.length > 0,
+    });
+  }, [eventCount, metadata, onIndexChange, segments, state]);
   const canIndex = clips.length >= 1
     && clips.length <= GAMEPLAY_SEARCH_LIMITS.maximumClips
     && totalBytes <= GAMEPLAY_SEARCH_LIMITS.maximumTotalFileBytes
@@ -599,6 +618,7 @@ export function GameplaySearchWorkbench() {
           <article className="gameplay-source" id={`gameplay-source-${clip.id}`} key={clip.id}>
             <div>
               <video
+                id={`gameplay-video-${clip.id}`}
                 ref={(node) => {
                   if (node) videoRefs.current.set(clip.id, node);
                   else videoRefs.current.delete(clip.id);
