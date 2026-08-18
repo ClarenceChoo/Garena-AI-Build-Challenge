@@ -190,7 +190,7 @@ export function UnseenExperience({
           <span className="ask-orbit" aria-hidden="true"><i /><i /><i /></span>
           <span className="eyebrow">CONVERSATIONAL SESSION SEARCH</span>
           <h2 id="ask-title">Ask the game what<br />you never saw.</h2>
-          <p>In the simulator, answers cite synchronized mock squad recordings. Real uploads use only the frames and opted-in audio supplied by your team.</p>
+          <p>In the simulator, answers cite synchronized mock squad recordings. Real uploads use only selected gameplay frames extracted in your browser.</p>
         </div>
 
         <div className="chat-card">

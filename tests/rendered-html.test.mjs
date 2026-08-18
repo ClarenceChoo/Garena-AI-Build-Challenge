@@ -102,18 +102,9 @@ test("server-renders the finished UNSEEN product shell", async () => {
     new URL("app/components/real-analysis-workbench.tsx", projectRoot),
     "utf8",
   );
-  assert.match(realWorkbench, /LIVE MULTIMODAL PIPELINE/);
-  assert.match(realWorkbench, /LIVE AI NEEDS CONFIGURATION/);
-  assert.match(realWorkbench, /\/api\/analyze\/clip/);
-  assert.match(realWorkbench, /\/api\/analyze\/link/);
-  assert.match(realWorkbench, /\/api\/analyze\/ask/);
-  assert.match(realWorkbench, /MAXIMUM_CLIP_MINUTES/);
-  assert.match(realWorkbench, /Gameplay Search/);
-  assert.match(realWorkbench, /Squad Reconstruction/);
-  assert.match(realWorkbench, /"gameplay-search"/);
-  assert.match(realWorkbench, /hidden=\{mode !== "gameplay-search"\}/);
-  assert.match(realWorkbench, /hidden=\{mode !== "squad-reconstruction"\}/);
-  assert.doesNotMatch(realWorkbench, /mode === "gameplay-search" \? <GameplaySearchWorkbench/);
+  assert.match(realWorkbench, /return <GameplaySearchWorkbench \/>/);
+  assert.doesNotMatch(realWorkbench, /Squad Reconstruction|SquadAnalysisWorkbench|analysis-mode-tabs/);
+  assert.doesNotMatch(experience, /opted-in audio supplied by your team/);
   const gameplayWorkbench = await readFile(
     new URL("app/components/gameplay-search-workbench.tsx", projectRoot),
     "utf8",
