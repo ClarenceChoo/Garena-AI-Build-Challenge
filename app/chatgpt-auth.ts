@@ -6,7 +6,7 @@ export type ChatGPTUser = {
   displayName: string;
   email: string;
   fullName: string | null;
-  provider: "chatgpt_sites" | "cloudflare_access";
+  provider: "chatgpt_sites" | "cloudflare_access" | "local_development";
 };
 
 const USER_ID_HEADER = "oai-authenticated-user-id";
@@ -27,6 +27,15 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!userId || !email) {
+    if (isLocalDevelopmentAuthEnabled()) {
+      return {
+        userId: "local-development-user",
+        displayName: "Local developer",
+        email: "local@localhost",
+        fullName: "Local developer",
+        provider: "local_development",
+      };
+    }
     if (process.env.UNSEEN_AUTH_PROVIDER !== "cloudflare_access") return null;
     const cloudflareEmail = requestHeaders.get(CLOUDFLARE_ACCESS_EMAIL_HEADER)?.trim();
     const cloudflareAccessJwt = requestHeaders.get(CLOUDFLARE_ACCESS_JWT_HEADER)?.trim();
@@ -66,6 +75,8 @@ export async function requireChatGPTUser(
 }
 
 export function isChatGPTUserAllowed(user: ChatGPTUser): boolean {
+  if (user.provider === "local_development") return true;
+
   const allowedEmails = new Set(
     (process.env.UNSEEN_ALLOWED_EMAILS ?? "")
       .split(",")
@@ -122,9 +133,13 @@ export function chatGPTSignOutPath(returnTo = "/"): string {
 }
 
 export function signOutPathForUser(user: ChatGPTUser, returnTo = "/"): string {
-  return user.provider === "cloudflare_access"
-    ? "/cdn-cgi/access/logout"
-    : chatGPTSignOutPath(returnTo);
+  if (user.provider === "cloudflare_access") return "/cdn-cgi/access/logout";
+  if (user.provider === "local_development") return returnTo;
+  return chatGPTSignOutPath(returnTo);
+}
+
+function isLocalDevelopmentAuthEnabled(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.UNSEEN_LOCAL_AUTH_BYPASS === "true";
 }
 
 function safeRelativeReturnPath(value: string): string {
