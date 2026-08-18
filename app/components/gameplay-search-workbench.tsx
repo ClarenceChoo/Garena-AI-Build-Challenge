@@ -62,6 +62,18 @@ interface ApiFailure {
 }
 
 const GIB = 1024 * 1024 * 1024;
+const MAXIMUM_INDEX_CONCURRENCY = 4;
+
+class IndexRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly retryAfterMs: number,
+  ) {
+    super(message);
+    this.name = "IndexRequestError";
+  }
+}
 
 function formatTime(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
@@ -86,6 +98,49 @@ async function apiError(response: Response): Promise<string> {
   const body = (await response.json().catch(() => null)) as ApiFailure | null;
   const message = body?.error?.message || `Request failed with HTTP ${response.status}.`;
   return body?.error?.requestId ? `${message} Request ${body.error.requestId}` : message;
+}
+
+function retryAfterMilliseconds(value: string | null): number {
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+async function indexApiError(response: Response): Promise<IndexRequestError> {
+  return new IndexRequestError(
+    await apiError(response),
+    response.status,
+    retryAfterMilliseconds(response.headers.get("retry-after")),
+  );
+}
+
+function indexWorkerCount(jobCount: number): number {
+  const logicalCores = typeof navigator === "undefined" ? 8 : navigator.hardwareConcurrency || 8;
+  const deviceBudget = Math.max(2, Math.floor(logicalCores / 2));
+  return Math.max(1, Math.min(jobCount, deviceBudget, MAXIMUM_INDEX_CONCURRENCY));
+}
+
+function isRetryableIndexError(error: unknown): boolean {
+  if (error instanceof IndexRequestError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+  return error instanceof TypeError;
+}
+
+async function waitForIndexRetry(milliseconds: number, signal: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(new DOMException("Indexing canceled.", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 function dominantContext(segments: GameplaySegmentIndex[]): { game: string; mode: string } {
@@ -333,6 +388,7 @@ export function GameplaySearchWorkbench() {
     let cursor = 0;
     const failed = new Set<string>();
     const completed = new Map(segmentsRef.current.map((segment) => [segment.segmentId, segment]));
+    const workerCount = indexWorkerCount(work.length);
     const worker = async () => {
       while (cursor < work.length) {
         const job = work[cursor];
@@ -340,18 +396,27 @@ export function GameplaySearchWorkbench() {
         const clip = clips.find((candidate) => candidate.id === job.clipId);
         if (!clip) continue;
         updateJob(job.id, { status: "running", attempts: job.attempts + 1, message: "Sampling locally" });
-        setMessage(`Scanning ${clip.label} · ${formatTime(job.startMs)}–${formatTime(job.endMs)} · two segments in parallel`);
+        setMessage(`Scanning ${clip.label} · ${formatTime(job.startMs)}–${formatTime(job.endMs)} · ${workerCount} segment${workerCount === 1 ? "" : "s"} in parallel`);
         let lastError = "Segment indexing failed.";
+        let evidence: Awaited<ReturnType<typeof extractAdaptiveSegmentEvidence>>;
+        try {
+          evidence = await extractAdaptiveSegmentEvidence(
+            clip.file,
+            clip.id,
+            job.id,
+            job.startMs,
+            job.endMs,
+            controller.signal,
+          );
+        } catch (error) {
+          if (controller.signal.aborted) throw error;
+          lastError = error instanceof Error ? error.message : lastError;
+          updateJob(job.id, { status: "failed", attempts: job.attempts + 1, message: lastError });
+          failed.add(job.id);
+          continue;
+        }
         for (let attempt = 1; attempt <= 2; attempt += 1) {
           try {
-            const evidence = await extractAdaptiveSegmentEvidence(
-              clip.file,
-              clip.id,
-              job.id,
-              job.startMs,
-              job.endMs,
-              controller.signal,
-            );
             updateJob(job.id, { attempts: job.attempts + attempt, message: `${evidence.frames.length} evidence images · analyzing` });
             const prior = [...completed.values()]
               .filter((segment) => segment.clipId === clip.id && segment.segmentStartMs < job.startMs)
@@ -369,7 +434,7 @@ export function GameplaySearchWorkbench() {
                 priorContext: prior ? { gameTitle: prior.gameTitle, gameMode: prior.gameMode } : null,
               }),
             });
-            if (!response.ok) throw new Error(await apiError(response));
+            if (!response.ok) throw await indexApiError(response);
             const indexed = await response.json() as GameplaySegmentIndex;
             if (indexed.api.real !== true || !indexed.api.responseId || indexed.segmentId !== job.id) {
               throw new Error("The segment response lacked verifiable OpenAI provenance.");
@@ -382,17 +447,24 @@ export function GameplaySearchWorkbench() {
           } catch (error) {
             if (controller.signal.aborted) throw error;
             lastError = error instanceof Error ? error.message : lastError;
-            if (attempt === 1) {
-              updateJob(job.id, { attempts: job.attempts + 1, message: "Retrying once" });
+            if (attempt === 1 && isRetryableIndexError(error)) {
+              const retryAfterMs = error instanceof IndexRequestError ? error.retryAfterMs : 0;
+              const backoffMs = Math.max(retryAfterMs, 750 + Math.floor(Math.random() * 500));
+              updateJob(job.id, {
+                attempts: job.attempts + 1,
+                message: `Rate-safe retry in ${Math.max(1, Math.ceil(backoffMs / 1_000))}s`,
+              });
+              await waitForIndexRetry(backoffMs, controller.signal);
               continue;
             }
             updateJob(job.id, { status: "failed", attempts: job.attempts + attempt, message: lastError });
             failed.add(job.id);
+            break;
           }
         }
       }
     };
-    await Promise.all([worker(), worker()]);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
     return failed.size;
   }
 

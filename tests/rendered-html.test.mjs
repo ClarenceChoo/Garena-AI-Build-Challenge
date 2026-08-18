@@ -119,6 +119,11 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/transcribe/);
   assert.match(gameplayWorkbench, /insufficient_evidence/);
+  assert.match(gameplayWorkbench, /MAXIMUM_INDEX_CONCURRENCY = 4/);
+  assert.match(gameplayWorkbench, /navigator\.hardwareConcurrency/);
+  assert.match(gameplayWorkbench, /Array\.from\(\{ length: workerCount \}/);
+  assert.match(gameplayWorkbench, /retry-after/);
+  assert.doesNotMatch(gameplayWorkbench, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
   const gameplayLimits = await readFile(new URL("lib/gameplay-search-types.ts", projectRoot), "utf8");
   assert.match(gameplayLimits, /maximumClips: 4/);
   assert.match(gameplayLimits, /maximumTotalDurationMs: 60 \* 60_000/);
@@ -473,6 +478,46 @@ test("gameplay routes reject unknown evidence and unconsented voice transmission
     assert.equal(overDuration.status, 400);
     assert.match((await overDuration.json()).error.message, /60-minute/i);
     assert.equal(upstreamCalls, 1, "unconsented audio must be rejected before any upstream request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("gameplay indexing relays OpenAI rate-limit retry guidance", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ error: { message: "Please retry shortly." } }),
+    {
+      status: 429,
+      headers: {
+        "content-type": "application/json",
+        "retry-after": "3",
+        "x-request-id": "req_rate_limited",
+      },
+    },
+  );
+  try {
+    const response = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clip: { id: "clip-rate", name: "rate.mp4", label: "Rate test", durationMs: 10_000, sizeBytes: 1_000_000 },
+        segment: { id: "segment-rate", startMs: 0, endMs: 10_000 },
+        frames: [
+          { id: "frame-rate-a", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
+          { id: "frame-rate-b", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+        ],
+        audioFeatures: [], transcriptSegments: [], priorContext: null,
+      }),
+    });
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get("retry-after"), "3");
+    const payload = await response.json();
+    assert.equal(payload.error.requestId, "req_rate_limited");
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;

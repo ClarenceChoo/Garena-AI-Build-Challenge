@@ -32,6 +32,7 @@ export class GameplaySearchOpenAIError extends Error {
     public readonly code: "OPENAI_ERROR" | "OPENAI_INVALID_OUTPUT",
     public readonly status = 502,
     public readonly requestId = "",
+    public readonly retryAfterMs = 0,
   ) {
     super(message);
     this.name = "GameplaySearchOpenAIError";
@@ -190,6 +191,19 @@ function safeMessage(value: unknown, fallback: string): string {
   return value.error.message.slice(0, 300);
 }
 
+function retryAfterMilliseconds(response: Response): number {
+  const value = response.headers.get("retry-after");
+  if (!value) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+function publicUpstreamStatus(status: number): number {
+  return status === 429 ? 429 : 502;
+}
+
 function extractResponseText(response: ResponsesApiResult): string | null {
   if (typeof response.output_text === "string") return response.output_text;
   if (!Array.isArray(response.output)) return null;
@@ -257,8 +271,9 @@ async function requestStructured<T>(
     throw new GameplaySearchOpenAIError(
       safeMessage(body, `OpenAI returned HTTP ${response.status}.`),
       "OPENAI_ERROR",
-      502,
+      publicUpstreamStatus(response.status),
       requestId,
+      retryAfterMilliseconds(response),
     );
   }
   const outputText = body ? extractResponseText(body) : null;
@@ -831,8 +846,9 @@ export async function transcribeGameplayAudio(
     throw new GameplaySearchOpenAIError(
       safeMessage(body, `OpenAI transcription returned HTTP ${response.status}.`),
       "OPENAI_ERROR",
-      502,
+      publicUpstreamStatus(response.status),
       requestId,
+      retryAfterMilliseconds(response),
     );
   }
   const rawSegments = record(body) && Array.isArray(body.segments) ? body.segments : [];
