@@ -2,7 +2,9 @@
 
 import {
   FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -142,6 +144,19 @@ function DirectorPreview({
   const activeBeat = plan.beats[activeIndex];
   const activeClip = clips.find((clip) => clip.id === activeBeat?.clipId);
 
+  useEffect(() => {
+    function pauseWhenHidden() {
+      if (!document.hidden) return;
+      videoRef.current?.pause();
+      setPlaying(false);
+    }
+
+    document.addEventListener("visibilitychange", pauseWhenHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", pauseWhenHidden);
+    };
+  }, []);
+
   function startActiveBeat(shouldPlay: boolean) {
     const video = videoRef.current;
     if (!video || !activeBeat) return;
@@ -236,7 +251,6 @@ function DirectorPreview({
           })}
         </ol>
       </div>
-      <footer>This is a temporary playable sequence, not an exported file. Use the social reel editor below to create a download.</footer>
     </section>
   );
 }
@@ -259,6 +273,8 @@ export function GameplayPostGameReview({
   const [coachThinking, setCoachThinking] = useState(false);
   const [coachError, setCoachError] = useState("");
   const coachAbort = useRef<AbortController | null>(null);
+  const scopeTabRefs = useRef(new Map<number, HTMLButtonElement>());
+  const scopeTabsId = `post-review-scope-${useId().replace(/:/g, "")}`;
   const reviewInput = useMemo<ReviewGameplayRequest>(
     () => ({
       clips: clips.map(({ id, name, label, durationMs, sizeBytes }) => ({ id, name, label, durationMs, sizeBytes })),
@@ -328,6 +344,18 @@ export function GameplayPostGameReview({
   const selectedLabel = scope.type === "team"
     ? "Squad"
     : clips.find((clip) => clip.id === scope.clipId)?.label ?? "Player";
+  const reviewScopes: ReviewScope[] = review
+    ? [
+        ...review.playerReviews.map((player): ReviewScope => ({ type: "player", clipId: player.clipId })),
+        ...(review.teamReview ? [{ type: "team", clipId: null } as const] : []),
+      ]
+    : [];
+  const selectedScopeIndex = reviewScopes.findIndex((candidate) => (
+    candidate.type === scope.type
+    && (candidate.type === "team" || candidate.clipId === scope.clipId)
+  ));
+  const selectedTabId = selectedScopeIndex >= 0 ? `${scopeTabsId}-tab-${selectedScopeIndex}` : undefined;
+  const selectedPanelId = selectedScopeIndex >= 0 ? `${scopeTabsId}-panel-${selectedScopeIndex}` : undefined;
   const suggestedPrompts = selectedReview ? [
     "What should I focus on next match?",
     selectedReview.improvements[0]
@@ -343,6 +371,19 @@ export function GameplayPostGameReview({
     setCoachError("");
     setCoachQuestion("");
     setScope(nextScope);
+  }
+
+  function handleScopeTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % reviewScopes.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + reviewScopes.length) % reviewScopes.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = reviewScopes.length - 1;
+    if (nextIndex === null || nextIndex < 0) return;
+
+    event.preventDefault();
+    selectScope(reviewScopes[nextIndex]);
+    window.requestAnimationFrame(() => scopeTabRefs.current.get(nextIndex)?.focus());
   }
 
   function retryReview() {
@@ -411,7 +452,7 @@ export function GameplayPostGameReview({
     return (
       <section className="post-game-review post-game-review-status" aria-live="polite">
         <span className="post-review-orbit" aria-hidden="true"><i /><i /><i /></span>
-        <div><span className="post-review-label">AI POST-GAME COACH</span><h2>Building your evidence-backed review…</h2><p>Gameplay Search is already available while UNSEEN evaluates each perspective and directs a playable recap.</p></div>
+        <div><h2>Building your review…</h2><p>You can keep using Search while coaching is generated.</p></div>
       </section>
     );
   }
@@ -419,7 +460,7 @@ export function GameplayPostGameReview({
   if (reviewState === "error") {
     return (
       <section className="post-game-review post-game-review-status state-error" aria-live="polite">
-        <div><span className="post-review-label">REVIEW GENERATION STOPPED</span><h2>Your gameplay index is still ready.</h2><p>{reviewError}</p></div>
+        <div><h2>Review paused.</h2><p>{reviewError}</p></div>
         <button type="button" onClick={retryReview}>Retry review</button>
       </section>
     );
@@ -428,7 +469,7 @@ export function GameplayPostGameReview({
   if (reviewState === "insufficient" || !review) {
     return (
       <section className="post-game-review post-game-review-status state-insufficient" aria-live="polite">
-        <div><span className="post-review-label">INSUFFICIENT COACHING EVIDENCE</span><h2>There is not enough observable gameplay to review honestly.</h2><p>Gameplay Search remains available. Add clearer or longer footage, then rebuild the temporary index for coaching.</p></div>
+        <div><h2>Not enough evidence yet.</h2><p>Add clearer or longer footage for coaching. Search still works.</p></div>
       </section>
     );
   }
@@ -459,19 +500,58 @@ export function GameplayPostGameReview({
         </div>
       )}
 
-      <div className="post-review-tabs" role="tablist" aria-label="Coaching perspective">
-        {review.playerReviews.map((player) => {
-          const label = clips.find((clip) => clip.id === player.clipId)?.label ?? "Player";
-          const selected = scope.type === "player" && scope.clipId === player.clipId;
-          return <button type="button" role="tab" aria-selected={selected} className={selected ? "active" : ""} key={player.clipId} onClick={() => selectScope({ type: "player", clipId: player.clipId })}>{label}</button>;
+      <div className="post-review-tabs" role="tablist" aria-label="Coaching perspective" aria-orientation="horizontal">
+        {reviewScopes.map((candidateScope, index) => {
+          const selected = index === selectedScopeIndex;
+          const label = candidateScope.type === "team"
+            ? "Squad"
+            : clips.find((clip) => clip.id === candidateScope.clipId)?.label ?? "Player";
+          const tabId = `${scopeTabsId}-tab-${index}`;
+          const panelId = `${scopeTabsId}-panel-${index}`;
+          return (
+            <button
+              type="button"
+              role="tab"
+              id={tabId}
+              aria-controls={panelId}
+              aria-selected={selected}
+              tabIndex={selected ? 0 : -1}
+              className={selected ? "active" : ""}
+              key={candidateScope.type === "team" ? "team" : candidateScope.clipId}
+              ref={(node) => {
+                if (node) scopeTabRefs.current.set(index, node);
+                else scopeTabRefs.current.delete(index);
+              }}
+              onClick={() => selectScope(candidateScope)}
+              onKeyDown={(event) => handleScopeTabKeyDown(event, index)}
+            >
+              {label}
+            </button>
+          );
         })}
-        {review.teamReview && <button type="button" role="tab" aria-selected={scope.type === "team"} className={scope.type === "team" ? "active" : ""} onClick={() => selectScope({ type: "team", clipId: null })}>Squad</button>}
       </div>
 
+      {reviewScopes.map((candidateScope, index) => index === selectedScopeIndex ? null : (
+        <div
+          id={`${scopeTabsId}-panel-${index}`}
+          role="tabpanel"
+          aria-labelledby={`${scopeTabsId}-tab-${index}`}
+          tabIndex={0}
+          hidden
+          key={`hidden-${candidateScope.type === "team" ? "team" : candidateScope.clipId}`}
+        />
+      ))}
+
       {selectedReview && (
-        <div className="post-review-content" role="tabpanel">
+        <div
+          className="post-review-content"
+          id={selectedPanelId}
+          role="tabpanel"
+          aria-labelledby={selectedTabId}
+          tabIndex={0}
+        >
           <section className="post-review-summary">
-            <div><span className="post-review-label">COACH&apos;S READ · {selectedLabel.toUpperCase()}</span><h3>{selectedReview.summary}</h3></div>
+            <div><h3>{selectedReview.summary}</h3></div>
             <aside><span>PRIMARY PRIORITY</span><strong>{selectedReview.primaryPriority}</strong></aside>
           </section>
 
@@ -481,8 +561,7 @@ export function GameplayPostGameReview({
 
           <div className="post-review-columns">
             <section>
-              <span className="post-review-label">KEEP DOING</span>
-              <h3>Evidence-backed strengths</h3>
+              <h3>Strengths</h3>
               {selectedReview.strengths.map((strength, index) => (
                 <article className="post-review-coaching-card strength" key={`${strength.title}-${index}`}>
                   <span>{String(index + 1).padStart(2, "0")}</span><h4>{strength.title}</h4><p>{strength.summary}</p>
@@ -491,8 +570,7 @@ export function GameplayPostGameReview({
               ))}
             </section>
             <section>
-              <span className="post-review-label">LEVEL UP NEXT</span>
-              <h3>Highest-impact improvements</h3>
+              <h3>Improve next</h3>
               {selectedReview.improvements.map((improvement, index) => (
                 <article className="post-review-coaching-card improvement" key={`${improvement.title}-${index}`}>
                   <span>{String(index + 1).padStart(2, "0")}</span><h4>{improvement.title}</h4>
@@ -504,7 +582,7 @@ export function GameplayPostGameReview({
           </div>
 
           <section className="post-review-practice">
-            <header><span className="post-review-label">NEXT SESSION PLAN</span><h3>Three habits to take into your next game.</h3></header>
+            <header><h3>Next game</h3></header>
             <div>{selectedReview.nextSessionPlan.map((action, index) => (
               <article key={`${action.title}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><h4>{action.title}</h4><p>{action.action}</p><small>SUCCESS MEASURE · {action.successMeasure}</small><EvidenceLinks eventIds={action.eventIds} segments={segments} clips={clips} onPlayMoment={onPlayMoment} /></article>
             ))}</div>
@@ -516,7 +594,7 @@ export function GameplayPostGameReview({
 
       {selectedReview && (
         <section className="ask-coach" aria-labelledby="ask-coach-title">
-          <header><div><span className="post-review-label">FOLLOW-UP COACHING · {selectedLabel.toUpperCase()}</span><h3 id="ask-coach-title">Ask Coach</h3><p>Ask why a decision mattered, what to practice, or which cited moment deserves another look.</p></div><span>GROUNDED IN THIS INDEX</span></header>
+          <header><div><h3 id="ask-coach-title">Ask Coach</h3></div></header>
           <div className="ask-coach-prompts">
             {suggestedPrompts.map((prompt) => <button type="button" key={prompt} onClick={() => setCoachQuestion(prompt)}>{prompt}</button>)}
           </div>
