@@ -259,8 +259,9 @@ rendering checks. A separate `npm run build` is optional.
 
 ## How to source gameplay clips
 
-For the strongest judge demo, use gameplay recorded by your own team. That keeps
-provenance, player permission, and source quality clear.
+https://drive.google.com/drive/folders/1iwZiPuZkRI5BG_4ZWer39mB0OTlHERvC?usp=sharing
+
+Clips can be used from any Garena games as well as other popular medium. In this google drive we provided some clips that can be used. But feel free to test it out with any clips of your liking. 
 
 ### Recommended sources
 
