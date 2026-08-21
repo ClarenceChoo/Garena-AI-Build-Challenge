@@ -41,9 +41,13 @@
 .gameplay-session-meter { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 12px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.1); }
 .gameplay-session-meter span { display: grid; gap: 5px; padding: 13px 15px; background: #0c0e13; color: #686e7a; font: 700 9px/1 var(--font-geist-mono); }
 .gameplay-session-meter strong { color: #e8e9ec; font-size: 13px; }
-.gameplay-audio-disabled { display: flex; gap: 12px; align-items: center; margin-top: 20px; padding: 15px; border: 1px solid rgba(53,228,255,.2); background: rgba(53,228,255,.035); }
-.gameplay-audio-disabled strong { flex: 0 0 auto; color: #35e4ff; font: 800 9px/1 var(--font-geist-mono); letter-spacing: .1em; }
-.gameplay-audio-disabled span { color: #858a95; font-size: 11px; line-height: 1.5; }
+.gameplay-voice-option { display: flex; gap: 12px; align-items: flex-start; margin-top: 20px; padding: 15px; border: 1px solid rgba(53,228,255,.2); background: rgba(53,228,255,.035); color: #858a95; cursor: pointer; }
+.gameplay-voice-option.selected { border-color: rgba(53,228,255,.55); background: rgba(53,228,255,.08); }
+.gameplay-voice-option:has(input:disabled) { cursor: not-allowed; opacity: .65; }
+.gameplay-voice-option input { flex: 0 0 auto; margin-top: 2px; accent-color: #35e4ff; }
+.gameplay-voice-option span { display: grid; gap: 5px; }
+.gameplay-voice-option strong { color: #35e4ff; font: 800 9px/1 var(--font-geist-mono); letter-spacing: .1em; text-transform: uppercase; }
+.gameplay-voice-option small { color: #858a95; font-size: 11px; line-height: 1.5; }
 .gameplay-permission input { accent-color: #ed1c2e; }
 .gameplay-permission { display: flex; gap: 11px; align-items: flex-start; margin-top: 10px; padding: 15px; border: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.025); color: #858a95; cursor: pointer; font-size: 12px; line-height: 1.5; }
 .gameplay-permission input { margin-top: 3px; }

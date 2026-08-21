@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  createConsentedAudioChunk,
   extractAdaptiveSegmentEvidence,
   readGameplayDuration,
   renderGameplayReel,
@@ -22,6 +23,7 @@ import type {
   HighlightAspectRatio,
   HighlightDurationMs,
   HighlightPlan,
+  TranscribeGameplayAudioResponse,
 } from "@/lib/gameplay-search-types";
 import { GAMEPLAY_SEARCH_LIMITS } from "@/lib/gameplay-search-types";
 import "./gameplay-search-workbench.css";
@@ -170,6 +172,7 @@ function dominantContext(segments: GameplaySegmentIndex[]): { game: string; mode
 export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkbenchProps = {}) {
   const [clips, setClips] = useState<GameplayClip[]>([]);
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
+  const [voiceAnalysisEnabled, setVoiceAnalysisEnabled] = useState(false);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
   const [state, setState] = useState<WorkbenchState>("idle");
   const [message, setMessage] = useState("Add up to four gameplay videos to build a private, temporary index.");
@@ -244,6 +247,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   const failedJobs = jobs.filter((job) => job.status === "failed").length;
   const indexProgress = jobs.length ? Math.round((completedJobs + failedJobs) / jobs.length * 100) : 0;
   const eventCount = segments.reduce((sum, segment) => sum + segment.events.length, 0);
+  const transcriptCount = clips.reduce((sum, clip) => sum + clip.transcripts.length, 0);
   const context = useMemo(() => dominantContext(segments), [segments]);
   const metadata = useMemo<GameplayClipMetadata[]>(() => clips.map(({ id, name, label, durationMs, sizeBytes }) => ({
     id,
@@ -363,6 +367,56 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     });
   }
 
+  async function transcribeConsentedAudio(
+    controller: AbortController,
+  ): Promise<Map<string, GameplayTranscriptSegment[]>> {
+    const transcriptMap = new Map<string, GameplayTranscriptSegment[]>();
+    for (const clip of clips) {
+      const transcript: GameplayTranscriptSegment[] = [];
+      for (
+        let startMs = 0;
+        startMs < clip.durationMs;
+        startMs += GAMEPLAY_SEARCH_LIMITS.audioChunkDurationMs
+      ) {
+        const endMs = Math.min(clip.durationMs, startMs + GAMEPLAY_SEARCH_LIMITS.audioChunkDurationMs);
+        setMessage(`Preparing consented voice audio · ${clip.label} · ${formatTime(startMs)}–${formatTime(endMs)}`);
+        const audio = await createConsentedAudioChunk(
+          clip.file,
+          startMs,
+          endMs,
+          controller.signal,
+        );
+        if (!audio) break;
+        if (audio.size > GAMEPLAY_SEARCH_LIMITS.maximumAudioChunkBytes) {
+          throw new Error(`${clip.label} produced an audio chunk larger than 25 MB. Shorten the source and try again.`);
+        }
+        const form = new FormData();
+        form.append("file", audio, `${clip.id}-${startMs}.webm`);
+        form.append("clipId", clip.id);
+        form.append("chunkStartMs", String(startMs));
+        form.append("voiceConsent", "true");
+        setMessage(`Transcribing consented voice chat · ${clip.label} · ${formatTime(startMs)}–${formatTime(endMs)}`);
+        const response = await fetch("/api/analyze/transcribe", {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(await apiError(response));
+        const result = await response.json() as TranscribeGameplayAudioResponse;
+        if (result.api.real !== true || result.clipId !== clip.id) {
+          throw new Error("The voice transcript response was not verifiable.");
+        }
+        transcript.push(...result.segments);
+      }
+      transcriptMap.set(clip.id, transcript);
+    }
+    setClips((current) => current.map((clip) => ({
+      ...clip,
+      transcripts: transcriptMap.get(clip.id) ?? [],
+    })));
+    return transcriptMap;
+  }
+
   async function processJobs(
     work: SegmentJob[],
     transcriptMap: Map<string, GameplayTranscriptSegment[]>,
@@ -460,7 +514,10 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     setSearchError("");
     setPlan(null);
     try {
-      const transcriptMap = new Map(clips.map((clip) => [clip.id, clip.transcripts]));
+      let transcriptMap = new Map(clips.map((clip) => [clip.id, clip.transcripts]));
+      if (!retryFailed && voiceAnalysisEnabled) {
+        transcriptMap = await transcribeConsentedAudio(controller);
+      }
       const work = retryFailed
         ? jobs.filter((job) => job.status === "failed").map((job) => ({ ...job, status: "pending" as const, message: "Queued for retry" }))
         : createJobs();
@@ -574,7 +631,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       const rendered = await renderGameplayReel(
         clips.map((clip) => ({ id: clip.id, file: clip.file })),
         plan,
-        false,
+        voiceAnalysisEnabled,
         setReelProgress,
         controller.signal,
       );
@@ -603,7 +660,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           <h1 id="gameplay-search-title">Find the exact moment. Cut the reel.</h1>
           <p>
             Give UNSEEN a long gameplay recording, then search it naturally. Raw video stays in your
-            browser; only selected evidence images reach OpenAI. Voice audio is never uploaded or transcribed.
+            browser; only selected evidence images and, when you opt in, consented audio chunks reach OpenAI.
           </p>
         </div>
       </div>
@@ -656,10 +713,30 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
         <span><strong>{eventCount}</strong> VERIFIED EVENTS</span>
       </div>
 
-      <div className="gameplay-audio-disabled">
-        <strong>VOICE ANALYSIS OFF</strong>
-        <span>Audio energy is measured locally for event detection. Voice audio is not uploaded, transcribed, or included in exports.</span>
-      </div>
+      <label className={`gameplay-voice-option${voiceAnalysisEnabled ? " selected" : ""}`}>
+        <input
+          type="checkbox"
+          checked={voiceAnalysisEnabled}
+          disabled={state === "indexing"}
+          onChange={(event) => {
+            const enabled = event.target.checked;
+            setVoiceAnalysisEnabled(enabled);
+            setClips((current) => current.map((clip) => ({ ...clip, transcripts: [] })));
+            resetDerivedState();
+            setState("idle");
+            setMessage(enabled
+              ? "Voice analysis enabled. Re-index to add timestamped dialogue and reactions."
+              : "Voice analysis disabled. Re-indexing will keep audio local and exports muted.");
+          }}
+        />
+        <span>
+          <strong>Analyze voice chat</strong>
+          <small>
+            Enable only when everyone audible has agreed. Audio is chunked locally, transcribed with
+            timestamps using {backend?.models.searchTranscription ?? "whisper-1"}, and kept only in this tab.
+          </small>
+        </span>
+      </label>
       <label className="gameplay-permission">
         <input type="checkbox" checked={permissionConfirmed} onChange={(event) => setPermissionConfirmed(event.target.checked)} />
         <span><strong>I have permission to analyze these recordings.</strong> Selected JPEG evidence may be sent to OpenAI. UNSEEN stores no raw video or persistent index.</span>
@@ -690,7 +767,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       {segments.length > 0 && (
         <div className="gameplay-index-context">
           <div><span>DETECTED GAME</span><strong>{context.game}</strong><small>{context.mode}</small></div>
-          <div><span>EVENT ONTOLOGY</span><strong>{eventCount} grounded moments</strong><small>Eliminations · assists · objectives · clutches · mistakes · reactions</small></div>
+          <div><span>EVENT ONTOLOGY</span><strong>{eventCount} grounded moments</strong><small>Eliminations · assists · objectives · clutches · mistakes · reactions{transcriptCount ? ` · ${transcriptCount} voice segments` : ""}</small></div>
           <div><span>INDEX LIFETIME</span><strong>This tab only</strong><small>Reload to clear all frames, transcripts, and events from memory.</small></div>
         </div>
       )}
@@ -754,7 +831,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
               <div className="gameplay-render-actions">
                 {reelState === "rendering" ? <button type="button" className="secondary" onClick={() => renderingAbort.current?.abort()}>Cancel export</button> : <button type="button" onClick={() => void renderReel()}>Render downloadable reel</button>}
                 {download && <a href={download.url} download={download.name}>Download {download.name} ↓</a>}
-                <span>MUTED · VOICE ANALYSIS OFF</span>
+                <span>{voiceAnalysisEnabled ? "ORIGINAL AUDIO · VOICE CONSENT CONFIRMED" : "MUTED · VOICE ANALYSIS OFF"}</span>
               </div>
               {reelState === "rendering" && <div className="gameplay-render-progress"><div><span style={{ width: `${Math.round(reelProgress * 100)}%` }} /></div><p>Rendering locally · {Math.round(reelProgress * 100)}%</p></div>}
             </div>
