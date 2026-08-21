@@ -34,6 +34,42 @@ async function dispatch(path, init = {}) {
   );
 }
 
+function gameplayIndexRequestBody(segmentId = "clip-guard-segment-001") {
+  return {
+    clip: {
+      id: "clip-guard",
+      name: "guard.mp4",
+      label: "Guard test",
+      durationMs: 10_000,
+      sizeBytes: 1_000_000,
+    },
+    segment: { id: segmentId, startMs: 0, endMs: 10_000 },
+    frames: [
+      {
+        id: `${segmentId}-frame-1000`,
+        timestampMs: 1_000,
+        imageDataUrl: "data:image/jpeg;base64,AA==",
+        width: 2,
+        height: 2,
+        detail: "high",
+        reason: "visual_change",
+      },
+      {
+        id: `${segmentId}-frame-8000`,
+        timestampMs: 8_000,
+        imageDataUrl: "data:image/jpeg;base64,AA==",
+        width: 2,
+        height: 2,
+        detail: "low",
+        reason: "context",
+      },
+    ],
+    audioFeatures: [],
+    transcriptSegments: [],
+    priorContext: null,
+  };
+}
+
 function coachingFixture() {
   const clips = [
     { id: "coach-a", name: "ace.mp4", label: "Ace", durationMs: 120_000, sizeBytes: 12_000_000 },
@@ -282,6 +318,23 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/transcribe/);
   assert.doesNotMatch(gameplayWorkbench, /voices_consented|voices_unconsented|Required audio declaration/);
+  assert.match(gameplayWorkbench, /const \[fastDemoEnabled, setFastDemoEnabled\] = useState\(true\)/);
+  assert.match(gameplayWorkbench, /role="switch"/);
+  assert.match(gameplayWorkbench, /aria-labelledby="gameplay-fast-demo-label"/);
+  assert.match(gameplayWorkbench, /aria-describedby="gameplay-fast-demo-description"/);
+  assert.match(gameplayWorkbench, /Parallel indexing for judge sessions up to 2:00 combined/);
+  assert.match(gameplayWorkbench, /12s windows every 10s/);
+  assert.match(gameplayWorkbench, /automatically fall back to Standard/);
+  assert.match(gameplayWorkbench, /Voice stays separately controlled and adds time/);
+  assert.match(gameplayWorkbench, /setFastDemoEnabled\(enabled\);[\s\S]*?resetDerivedState\(\);/);
+  assert.match(gameplayWorkbench, /FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS = 2 \* 60_000/);
+  assert.match(gameplayWorkbench, /selectGameplaySegmentationMode/);
+  assert.match(gameplayWorkbench, /createSegmentWindows\(clip\.durationMs, segmentationMode\)/);
+  assert.match(gameplayWorkbench, /fastMode[\s\S]*?seedJobs: \[\] as SegmentJob\[\], parallelJobs: work/);
+  assert.match(gameplayWorkbench, /deduplicateOverlappingSegments/);
+  assert.match(gameplayWorkbench, /Search unlocks after deduplication/);
+  assert.match(gameplayWorkbench, /planning \|\| reelState === "rendering"/);
+  assert.match(gameplayWorkbench, /Finish or cancel export/);
   assert.match(gameplayWorkbench, /Analyze voice chat/);
   assert.match(gameplayWorkbench, /createConsentedAudioChunk/);
   assert.match(gameplayWorkbench, /form\.append\("voiceConsent", "true"\)/);
@@ -297,7 +350,7 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /createConcurrencyGate\(localMediaWorkerCount\(work\.length\)\)/);
   assert.match(gameplayWorkbench, /partitionSeedJobs\(work, \[\.\.\.completed\.values\(\)\]\)/);
   assert.match(gameplayWorkbench, /runPhase\(seedJobs, "context"/);
-  assert.match(gameplayWorkbench, /runPhase\(parallelJobs, "parallel"/);
+  assert.match(gameplayWorkbench, /runPhase\(\s*parallelJobs,\s*"parallel"/);
   assert.match(gameplayWorkbench, /prior\.segmentStartMs < job\.startMs/);
   assert.doesNotMatch(gameplayWorkbench, /sort\(\(a, b\) => b\.segmentStartMs - a\.segmentStartMs\)/);
   assert.match(gameplayWorkbench, /navigator\.hardwareConcurrency/);
@@ -515,6 +568,72 @@ test("live analysis fails closed when the server secret is absent", async () => 
   }
 });
 
+test("short gameplay windows use concise Responses settings without changing standard windows", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  const upstreamRequests = [];
+  globalThis.fetch = async (_url, init) => {
+    const outbound = JSON.parse(init.body);
+    upstreamRequests.push(outbound);
+    assert.equal(outbound.text.format.name, "unseen_gameplay_segment_index");
+    return new Response(JSON.stringify({
+      id: `resp_window_profile_${upstreamRequests.length}`,
+      model: "gpt-5.6-sol-2026-08-01",
+      output_text: JSON.stringify({
+        gameTitle: "Unknown game",
+        gameMode: "Unknown mode",
+        contextSummary: "No reliable event is visible.",
+        events: [],
+      }),
+      usage: { input_tokens: 80, output_tokens: 20 },
+    }), { status: 200, headers: { "content-type": "application/json", "x-request-id": `req_window_profile_${upstreamRequests.length}` } });
+  };
+
+  try {
+    const shortIndexRequest = gameplayIndexRequestBody("clip-guard-segment-short");
+    shortIndexRequest.clip.durationMs = 12_500;
+    shortIndexRequest.segment.endMs = 12_500;
+    const shortResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(shortIndexRequest),
+    });
+    assert.equal(shortResponse.status, 200);
+
+    const standardRequest = gameplayIndexRequestBody("clip-guard-segment-standard");
+    standardRequest.clip.durationMs = 120_000;
+    standardRequest.segment.endMs = 120_000;
+    const standardResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(standardRequest),
+    });
+    assert.equal(standardResponse.status, 200);
+
+    assert.equal(upstreamRequests.length, 2);
+    const [shortRequest, standardOutbound] = upstreamRequests;
+    assert.equal(shortRequest.max_output_tokens, 2_200);
+    assert.equal(shortRequest.text.verbosity, "low");
+    assert.match(shortRequest.instructions, /short gameplay window/i);
+    assert.match(shortRequest.instructions, /at most the four strongest distinct events/i);
+    assert.match(shortRequest.instructions, /keep contextSummary, title, description, and ocrText brief/i);
+    assert.equal(standardOutbound.max_output_tokens, 3_400);
+    assert.equal(standardOutbound.text.verbosity, "medium");
+    assert.match(standardOutbound.instructions, /^Index one segment of a gameplay recording/);
+    assert.doesNotMatch(standardOutbound.instructions, /short gameplay window/i);
+    for (const outbound of upstreamRequests) {
+      assert.equal(outbound.store, false);
+      assert.deepEqual(outbound.reasoning, { effort: "low" });
+      assert.equal(outbound.text.format.strict, true);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
 test("gameplay search indexes cited events, seeks only known IDs, and clamps reel cuts", { concurrency: false }, async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
@@ -709,8 +828,8 @@ test("gameplay routes reject unknown evidence and unconsented voice transmission
         clip: { id: "clip-a", name: "a.mp4", label: "A", durationMs: 10_000, sizeBytes: 1_000_000 },
         segment: { id: "segment-a", startMs: 0, endMs: 10_000 },
         frames: [
-          { id: "frame-a", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
-          { id: "frame-b", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+          { id: "segment-a-frame-1000", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
+          { id: "segment-a-frame-8000", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
         ],
         audioFeatures: [], transcriptSegments: [], priorContext: null,
       }),
@@ -751,6 +870,186 @@ test("gameplay routes reject unknown evidence and unconsented voice transmission
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
   }
+});
+
+test("gameplay index validation rejects foreign and duplicate frame IDs and emits unique normalized event IDs", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  const body = gameplayIndexRequestBody();
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    return new Response(JSON.stringify({
+      id: "resp_guard_index",
+      model: "gpt-5.6-sol",
+      output_text: JSON.stringify({
+        gameTitle: "Free Fire",
+        gameMode: "Battle Royale",
+        contextSummary: "One visible event.",
+        events: [
+          {
+            id: `${body.segment.id}-event-2`,
+            startMs: 1_000,
+            endMs: 2_000,
+            type: "other",
+            title: "Visible event",
+            description: "The event is visible in the supplied frame.",
+            actors: [],
+            target: null,
+            ocrText: "",
+            importance: 40,
+            confidence: 0.8,
+            evidenceFrameIds: [body.frames[0].id],
+            transcriptSegmentIds: [],
+          },
+          {
+            id: body.segment.id,
+            startMs: 7_000,
+            endMs: 8_000,
+            type: "movement",
+            title: "Second visible event",
+            description: "A second event is visible in the supplied frame.",
+            actors: [],
+            target: null,
+            ocrText: "",
+            importance: 35,
+            confidence: 0.75,
+            evidenceFrameIds: [body.frames[1].id],
+            transcriptSegmentIds: [],
+          },
+        ],
+      }),
+      usage: { input_tokens: 20, output_tokens: 20 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const validResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(validResponse.status, 200, await validResponse.clone().text());
+    const indexed = await validResponse.json();
+    assert.deepEqual(indexed.events.map((event) => event.id), [
+      `${body.segment.id}-event-2`,
+      `${body.segment.id}-event-2-2`,
+    ]);
+
+    const duplicateResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ ...body, frames: [body.frames[0], { ...body.frames[0] }] }),
+    });
+    assert.equal(duplicateResponse.status, 400);
+    assert.match((await duplicateResponse.json()).error.message, /frame 2 is invalid/i);
+
+    const foreignResponse = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        ...body,
+        frames: body.frames.map((frame, index) => ({ ...frame, id: `foreign-frame-${index}` })),
+      }),
+    });
+    assert.equal(foreignResponse.status, 400);
+    assert.match((await foreignResponse.json()).error.message, /frame 1 is invalid/i);
+    assert.equal(upstreamCalls, 1, "invalid frame catalogs must be rejected before OpenAI");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("gameplay tools reject more than 240 indexed segments instead of truncating", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    throw new Error("OpenAI must not receive an oversized index.");
+  };
+  try {
+    const response = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        query: "find the final event",
+        clips: [{
+          id: "clip-limit",
+          name: "limit.mp4",
+          label: "Limit test",
+          durationMs: 60_000,
+          sizeBytes: 1_000_000,
+        }],
+        segments: Array.from({ length: 241 }, () => ({})),
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error.message, /exceeds 240 segments/i);
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("gameplay indexing propagates request cancellation to the upstream fetch", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamSignal;
+  let notifyStarted;
+  const started = new Promise((resolve) => {
+    notifyStarted = resolve;
+  });
+  globalThis.fetch = async (_url, init) => {
+    upstreamSignal = init?.signal;
+    notifyStarted();
+    return await new Promise((resolve, reject) => {
+      const fallback = setTimeout(() => reject(new Error("Request cancellation was not propagated.")), 2_000);
+      const onAbort = () => {
+        clearTimeout(fallback);
+        reject(new DOMException("Canceled by caller.", "AbortError"));
+      };
+      if (upstreamSignal?.aborted) onAbort();
+      else upstreamSignal?.addEventListener("abort", onAbort, { once: true });
+    });
+  };
+  try {
+    const controller = new AbortController();
+    const responsePromise = dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(gameplayIndexRequestBody("clip-guard-segment-cancel")),
+      signal: controller.signal,
+    });
+    await started;
+    assert.equal(upstreamSignal.aborted, false);
+    controller.abort();
+    const response = await responsePromise;
+    assert.equal(upstreamSignal.aborted, true);
+    assert.equal(response.status, 502);
+    assert.match((await response.json()).error.message, /canceled/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("all gameplay OpenAI routes forward the request abort signal", async () => {
+  const routePaths = ["index-segment", "search", "highlights", "review", "coach", "transcribe"];
+  for (const routePath of routePaths) {
+    const source = await readFile(new URL(`app/api/analyze/${routePath}/route.ts`, projectRoot), "utf8");
+    assert.match(source, /gameplayOpenAIConfig\(apiKey, request\.signal\)/, routePath);
+  }
+  const clientSource = await readFile(new URL("lib/gameplay-search-openai.ts", projectRoot), "utf8");
+  assert.match(clientSource, /config\.signal\?\.addEventListener\("abort", abortFromRequest/);
+  assert.match(clientSource, /config\.signal\?\.removeEventListener\("abort", abortFromRequest\)/);
 });
 
 test("consented voice analysis returns absolute Whisper segment timestamps", { concurrency: false }, async () => {
@@ -1140,8 +1439,8 @@ test("gameplay indexing relays OpenAI rate-limit retry guidance", { concurrency:
         clip: { id: "clip-rate", name: "rate.mp4", label: "Rate test", durationMs: 10_000, sizeBytes: 1_000_000 },
         segment: { id: "segment-rate", startMs: 0, endMs: 10_000 },
         frames: [
-          { id: "frame-rate-a", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
-          { id: "frame-rate-b", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+          { id: "segment-rate-frame-1000", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "high", reason: "visual_change" },
+          { id: "segment-rate-frame-8000", timestampMs: 8_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
         ],
         audioFeatures: [], transcriptSegments: [], priorContext: null,
       }),

@@ -33,7 +33,7 @@ export async function POST(request: Request): Promise<Response> {
     return gameplayErrorResponse(400, "INVALID_REQUEST", "Each consented audio chunk must be 25 MB or smaller.");
   }
   try {
-    const result = await transcribeGameplayAudio(file, clipId, chunkStartMs, gameplayOpenAIConfig(apiKey));
+    const result = await transcribeGameplayAudio(file, clipId, chunkStartMs, gameplayOpenAIConfig(apiKey, request.signal));
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return gameplayRouteError(error, "The consented audio chunk could not be transcribed.");

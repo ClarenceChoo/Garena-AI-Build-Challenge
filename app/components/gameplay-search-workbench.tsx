@@ -18,7 +18,10 @@ import {
 } from "@/lib/gameplay-search-client";
 import { createConcurrencyGate } from "@/lib/bounded-concurrency.js";
 import {
+  createSegmentWindows,
+  deduplicateOverlappingSegments,
   partitionSeedJobs,
+  selectGameplaySegmentationMode,
   stablePriorContextByClip,
 } from "@/lib/gameplay-index-scheduling.js";
 import type {
@@ -90,6 +93,7 @@ const GIB = 1024 * 1024 * 1024;
 const MAXIMUM_INDEX_API_CONCURRENCY = 8;
 const MAXIMUM_LOCAL_MEDIA_CONCURRENCY = 2;
 const MAXIMUM_TRANSCRIPTION_API_CONCURRENCY = 4;
+const FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS = 2 * 60_000;
 
 class IndexRequestError extends Error {
   constructor(
@@ -203,6 +207,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   const [clips, setClips] = useState<GameplayClip[]>([]);
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [voiceAnalysisEnabled, setVoiceAnalysisEnabled] = useState(false);
+  const [fastDemoEnabled, setFastDemoEnabled] = useState(true);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
   const [state, setState] = useState<WorkbenchState>("idle");
   const [message, setMessage] = useState("Add up to four gameplay videos to build a private, temporary index.");
@@ -227,6 +232,8 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   const segmentsRef = useRef<GameplaySegmentIndex[]>([]);
   const videoRefs = useRef(new Map<string, HTMLVideoElement>());
   const indexingAbort = useRef<AbortController | null>(null);
+  const searchAbort = useRef<AbortController | null>(null);
+  const planningAbort = useRef<AbortController | null>(null);
   const renderingAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -263,6 +270,8 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
 
   useEffect(() => () => {
     indexingAbort.current?.abort();
+    searchAbort.current?.abort();
+    planningAbort.current?.abort();
     renderingAbort.current?.abort();
     clipsRef.current.forEach((clip) => URL.revokeObjectURL(clip.url));
   }, []);
@@ -282,6 +291,13 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
 
   const totalBytes = useMemo(() => clips.reduce((sum, clip) => sum + clip.file.size, 0), [clips]);
   const totalDurationMs = useMemo(() => clips.reduce((sum, clip) => sum + clip.durationMs, 0), [clips]);
+  const segmentationMode = selectGameplaySegmentationMode(
+    totalDurationMs,
+    fastDemoEnabled,
+    FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS,
+  );
+  const fastDemoEligible = totalDurationMs <= FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS;
+  const fastDemoActive = segmentationMode === "fast";
   const completedJobs = jobs.filter((job) => job.status === "complete").length;
   const failedJobs = jobs.filter((job) => job.status === "failed").length;
   const canceledJobs = jobs.filter((job) => job.status === "canceled").length;
@@ -326,6 +342,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     && backend?.configured === true
     && state !== "indexing";
   const canRetryIndex = canIndex && retryableJobs > 0;
+  const indexFinalized = (state === "ready" || state === "partial") && segments.length > 0;
 
   const toolStatuses: Record<ToolTab, string> = {
     clips: state === "indexing"
@@ -337,17 +354,23 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           : clips.length > 0
             ? `${clips.length} added`
             : "Add clips",
-    search: eventCount > 0 ? `${eventCount} events` : "Index first",
+    search: state === "indexing"
+      ? `${completedJobs}/${jobs.length} windows`
+      : indexFinalized && eventCount > 0
+        ? `${eventCount} events`
+        : "Index first",
     coach: eventCount > 0 && (state === "ready" || state === "partial") ? "Ready" : "Index first",
     highlights: download
       ? "Download"
       : reelState === "rendering"
         ? `${Math.round(reelProgress * 100)}%`
-        : selectedEventIds.length > 0
-          ? `${selectedEventIds.length} pinned`
-          : eventCount > 0
-            ? "Ready"
-            : "Index first",
+        : state === "indexing"
+          ? "Indexing"
+          : selectedEventIds.length > 0
+            ? `${selectedEventIds.length} pinned`
+            : indexFinalized && eventCount > 0
+              ? "Ready"
+              : "Index first",
   };
 
   function handleToolTabKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>, tab: ToolTab) {
@@ -371,16 +394,28 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     });
   }
 
-  function resetDerivedState() {
-    setJobs([]);
-    setSegments([]);
+  function clearDerivedOutputs() {
+    searchAbort.current?.abort();
+    planningAbort.current?.abort();
+    renderingAbort.current?.abort();
+    setSearching(false);
+    setPlanning(false);
     setSearchResult(null);
+    setSearchError("");
     setSelectedEventIds([]);
     setPlan(null);
     setReelState("idle");
+    setReelProgress(0);
     setReelError("");
     if (download) URL.revokeObjectURL(download.url);
     setDownload(null);
+  }
+
+  function resetDerivedState() {
+    clearDerivedOutputs();
+    setJobs([]);
+    segmentsRef.current = [];
+    setSegments([]);
   }
 
   async function addFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -432,7 +467,9 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       resetDerivedState();
       setClips((current) => [...current, ...next]);
       setState("idle");
-      setMessage(`${next.length} source${next.length === 1 ? "" : "s"} added. Raw video remains on this device.`);
+      setMessage(fastDemoEnabled && runningDuration > FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS
+        ? `${next.length} source${next.length === 1 ? "" : "s"} added. This session exceeds 2:00, so Standard indexing will be used.`
+        : `${next.length} source${next.length === 1 ? "" : "s"} added. Raw video remains on this device.`);
     }
   }
 
@@ -456,19 +493,16 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
 
   function createJobs(): SegmentJob[] {
     return clips.flatMap((clip) => {
-      const next: SegmentJob[] = [];
-      for (let startMs = 0, index = 0; startMs < clip.durationMs; startMs += GAMEPLAY_SEARCH_LIMITS.segmentDurationMs, index += 1) {
-        next.push({
-          id: `${clip.id}-segment-${String(index + 1).padStart(3, "0")}`,
-          clipId: clip.id,
-          startMs,
-          endMs: Math.min(clip.durationMs, startMs + GAMEPLAY_SEARCH_LIMITS.segmentDurationMs),
-          status: "pending",
-          attempts: 0,
-          message: "Queued",
-        });
-      }
-      return next;
+      const windows = createSegmentWindows(clip.durationMs, segmentationMode);
+      return windows.map(({ startMs, endMs }, index) => ({
+        id: `${clip.id}-segment-${String(index + 1).padStart(3, "0")}`,
+        clipId: clip.id,
+        startMs,
+        endMs,
+        status: "pending",
+        attempts: 0,
+        message: "Queued",
+      }));
     });
   }
 
@@ -563,12 +597,16 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     work: SegmentJob[],
     transcriptMap: Map<string, GameplayTranscriptSegment[]>,
     controller: AbortController,
+    fastMode: boolean,
   ) {
     const failed = new Set<string>();
     const completed = new Map(segmentsRef.current.map((segment) => [segment.segmentId, segment]));
     const extractionConcurrency = localMediaWorkerCount(work.length);
     const extractionGate = createConcurrencyGate(extractionConcurrency);
-    const { seedJobs, parallelJobs } = partitionSeedJobs(work, [...completed.values()]);
+    const schedule = fastMode
+      ? { seedJobs: [] as SegmentJob[], parallelJobs: work }
+      : partitionSeedJobs(work, [...completed.values()]);
+    const { seedJobs, parallelJobs } = schedule;
 
     const runPhase = async (
       phaseWork: SegmentJob[],
@@ -585,7 +623,9 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           const clip = clips.find((candidate) => candidate.id === job.clipId);
           if (!clip) continue;
           updateJob(job.id, { status: "running", attempts: job.attempts + 1, message: "Waiting for local decoder" });
-          setMessage(phase === "context"
+          setMessage(fastMode
+            ? `Fast Demo · ${workerCount} windows in parallel · ${extractionConcurrency} local decoder${extractionConcurrency === 1 ? "" : "s"}`
+            : phase === "context"
             ? `Detecting game context from ${workerCount} clip${workerCount === 1 ? "" : "s"} in parallel`
             : `Indexing ${workerCount} segments in parallel · ${extractionConcurrency} local decoder${extractionConcurrency === 1 ? "" : "s"}`);
           let lastError = "Segment indexing failed.";
@@ -642,7 +682,9 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
               completed.set(job.id, indexed);
               failed.delete(job.id);
               updateJob(job.id, { status: "complete", attempts: job.attempts + attempt, message: `${indexed.events.length} events` });
-              const nextSegments = [...completed.values()].sort(compareIndexedSegments);
+              const nextSegments = deduplicateOverlappingSegments(
+                [...completed.values()].sort(compareIndexedSegments),
+              ) as GameplaySegmentIndex[];
               segmentsRef.current = nextSegments;
               setSegments(nextSegments);
               break;
@@ -679,10 +721,16 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     };
 
     await runPhase(seedJobs, "context", stablePriorContextByClip([...completed.values()]));
-    await runPhase(parallelJobs, "parallel", stablePriorContextByClip([...completed.values()]));
+    await runPhase(
+      parallelJobs,
+      "parallel",
+      fastMode ? new Map() : stablePriorContextByClip([...completed.values()]),
+    );
     return {
       failedCount: failed.size,
-      completedSegments: [...completed.values()].sort(compareIndexedSegments),
+      completedSegments: deduplicateOverlappingSegments(
+        [...completed.values()].sort(compareIndexedSegments),
+      ) as GameplaySegmentIndex[],
     };
   }
 
@@ -692,9 +740,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     const controller = new AbortController();
     indexingAbort.current = controller;
     setState("indexing");
-    setSearchResult(null);
-    setSearchError("");
-    setPlan(null);
+    clearDerivedOutputs();
     try {
       let transcriptMap = new Map(clips.map((clip) => [clip.id, clip.transcripts]));
       if (!retryFailed && voiceAnalysisEnabled) {
@@ -716,11 +762,13 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
             : job,
         ));
       }
-      const result = await processJobs(work, transcriptMap, controller);
+      const result = await processJobs(work, transcriptMap, controller, fastDemoActive);
       segmentsRef.current = result.completedSegments;
       setSegments(result.completedSegments);
       setState(result.failedCount > 0 ? "partial" : "ready");
-      setMessage("Indexing finished. AI coaching is generating while the verified timeline stays searchable.");
+      setMessage(fastDemoActive
+        ? "Fast Demo index ready. Overlap duplicates were removed before Search and Coach unlocked."
+        : "Indexing finished. AI coaching is generating while the verified timeline stays searchable.");
     } catch (error) {
       if (controller.signal.aborted) {
         setJobs((current) => current.map((job) =>
@@ -758,7 +806,10 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!query.trim() || !segments.length || searching) return;
+    if (!query.trim() || !indexFinalized || searching) return;
+    searchAbort.current?.abort();
+    const controller = new AbortController();
+    searchAbort.current = controller;
     setSearching(true);
     setSearchError("");
     setSearchResult(null);
@@ -767,15 +818,22 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: query.trim(), clips: metadata, segments }),
+        signal: controller.signal,
       });
       if (!response.ok) throw new Error(await apiError(response));
       const result = await response.json() as GameplaySearchResponse;
+      if (controller.signal.aborted) return;
       if (result.api.real !== true || !result.api.responseId) throw new Error("The search result was not verifiable.");
       setSearchResult(result);
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "Gameplay search failed.");
+      if (!controller.signal.aborted) {
+        setSearchError(error instanceof Error ? error.message : "Gameplay search failed.");
+      }
     } finally {
-      setSearching(false);
+      if (searchAbort.current === controller) {
+        setSearching(false);
+        searchAbort.current = null;
+      }
     }
   }
 
@@ -786,7 +844,10 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   }
 
   async function createPlan() {
-    if (!segments.length || planning) return;
+    if (!indexFinalized || planning || reelState === "rendering") return;
+    planningAbort.current?.abort();
+    const controller = new AbortController();
+    planningAbort.current = controller;
     setPlanning(true);
     setReelError("");
     setPlan(null);
@@ -797,6 +858,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       const response = await fetch("/api/analyze/highlights", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           prompt: reelPrompt,
           targetDurationMs: reelDuration,
@@ -808,14 +870,20 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       });
       if (!response.ok) throw new Error(await apiError(response));
       const result = await response.json() as HighlightPlan;
+      if (controller.signal.aborted) return;
       if (result.api.real !== true || !result.api.responseId || !result.beats.length) {
         throw new Error("The highlight plan was not verifiable.");
       }
       setPlan(result);
     } catch (error) {
-      setReelError(error instanceof Error ? error.message : "Highlight planning failed.");
+      if (!controller.signal.aborted) {
+        setReelError(error instanceof Error ? error.message : "Highlight planning failed.");
+      }
     } finally {
-      setPlanning(false);
+      if (planningAbort.current === controller) {
+        setPlanning(false);
+        planningAbort.current = null;
+      }
     }
   }
 
@@ -937,8 +1005,39 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           <span><strong>{formatTime(totalDurationMs)}</strong> / 60:00</span>
           <span><strong>{readableBytes(totalBytes)}</strong> / 2 GB</span>
           <span><strong>{eventCount}</strong> events</span>
+          <span><strong>{fastDemoActive ? "Fast" : "Standard"}</strong> index</span>
           {segments.length > 0 && <span><strong>{context.game}</strong> / {context.mode}</span>}
         </div>
+
+        <label className={`gameplay-fast-demo-option${fastDemoEnabled ? " selected" : ""}`}>
+          <input
+            type="checkbox"
+            role="switch"
+            aria-labelledby="gameplay-fast-demo-label"
+            aria-describedby="gameplay-fast-demo-description"
+            checked={fastDemoEnabled}
+            disabled={state === "indexing"}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setFastDemoEnabled(enabled);
+              resetDerivedState();
+              setState("idle");
+              setMessage(enabled
+                ? fastDemoEligible
+                  ? "Fast Demo enabled. Short clips use 12s windows every 10s; voice analysis still adds time."
+                  : "Fast Demo is on, but this session exceeds 2:00 combined and will use Standard indexing."
+                : "Standard indexing selected. Recommended for long gameplay sessions.");
+            }}
+          />
+          <span>
+            <strong id="gameplay-fast-demo-label">Fast Demo</strong>
+            <small id="gameplay-fast-demo-description">Parallel indexing for judge sessions up to 2:00 combined. Uses 12s windows every 10s; longer sessions automatically fall back to Standard. Voice stays separately controlled and adds time.</small>
+          </span>
+          <span className="gameplay-fast-demo-switch" aria-hidden="true">
+            <i />
+            <b>{fastDemoEnabled ? fastDemoEligible ? "ON" : "STD" : "OFF"}</b>
+          </span>
+        </label>
 
         <label className={`gameplay-voice-option${voiceAnalysisEnabled ? " selected" : ""}`}>
         <input
@@ -990,7 +1089,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           ) : retryableJobs > 0 ? (
             <button type="button" className="secondary" disabled={!canRetryIndex} onClick={() => void startIndexing(true)}>Retry {retryableJobs} unfinished</button>
           ) : null}
-          <button type="button" disabled={!canIndex} onClick={() => void startIndexing(false)}>{segments.length ? "Rebuild index" : "Index footage with AI ✦"}</button>
+          <button type="button" disabled={!canIndex} onClick={() => void startIndexing(false)}>{segments.length ? "Rebuild index" : fastDemoActive ? "Fast index with AI ✦" : "Index footage with AI ✦"}</button>
         </div>
       </div>
       {jobs.length > 0 && (
@@ -1001,7 +1100,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
         </div>
       )}
 
-        {segments.length > 0 && (
+        {indexFinalized && eventCount > 0 && (
           <button className="gameplay-next-tool" type="button" onClick={() => focusToolTab("search")}>
             Index ready · Search {eventCount} event{eventCount === 1 ? "" : "s"} →
           </button>
@@ -1040,7 +1139,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
         aria-labelledby="unseen-tool-tab-search"
         hidden={activeTab !== "search"}
       >
-        {segments.length > 0 ? (
+        {indexFinalized && eventCount > 0 ? (
         <section className="gameplay-search-panel" aria-labelledby="natural-search-title">
           <div><h2 id="natural-search-title">Search footage</h2></div>
           <form onSubmit={(event) => void search(event)}>
@@ -1080,7 +1179,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           )}
         </section>
         ) : (
-          <div className="gameplay-tool-empty"><strong>Index clips to search them.</strong><button type="button" onClick={() => focusToolTab("clips")}>Go to Clips</button></div>
+          <div className="gameplay-tool-empty"><strong>{state === "indexing" ? "Fast windows are still indexing. Search unlocks after deduplication." : "Index clips to search them."}</strong><button type="button" onClick={() => focusToolTab("clips")}>Go to Clips</button></div>
         )}
       </div>
 
@@ -1091,7 +1190,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
         aria-labelledby="unseen-tool-tab-highlights"
         hidden={activeTab !== "highlights"}
       >
-        {segments.length > 0 && eventCount > 0 ? (
+        {indexFinalized && eventCount > 0 ? (
         <section className="gameplay-reel" aria-labelledby="gameplay-reel-title">
           <div className="gameplay-reel-heading">
             <div><h2 id="gameplay-reel-title">Create highlights</h2></div>
@@ -1101,7 +1200,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
             <label>Reel direction<textarea value={reelPrompt} maxLength={500} onChange={(event) => setReelPrompt(event.target.value)} /></label>
             <fieldset><legend>Duration</legend>{([30_000, 60_000, 90_000] as HighlightDurationMs[]).map((duration) => <button type="button" className={reelDuration === duration ? "selected" : ""} key={duration} onClick={() => setReelDuration(duration)}>{duration / 1_000}s</button>)}</fieldset>
             <fieldset><legend>Format</legend><button type="button" className={reelAspect === "16:9" ? "selected" : ""} onClick={() => setReelAspect("16:9")}>1280×720</button><button type="button" className={reelAspect === "9:16" ? "selected" : ""} onClick={() => setReelAspect("9:16")}>720×1280</button></fieldset>
-            <button type="button" disabled={planning} onClick={() => void createPlan()}>{planning ? "Planning from evidence…" : "Create edit plan ✦"}</button>
+            <button type="button" disabled={planning || reelState === "rendering"} onClick={() => void createPlan()}>{planning ? "Planning from evidence…" : reelState === "rendering" ? "Finish or cancel export" : "Create edit plan ✦"}</button>
           </div>
           {plan && (
             <div className="gameplay-edit-plan">
@@ -1118,7 +1217,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           {reelError && <p className="gameplay-error">{reelError}</p>}
         </section>
         ) : (
-          <div className="gameplay-tool-empty"><strong>Index clips to create highlights.</strong><button type="button" onClick={() => focusToolTab("clips")}>Go to Clips</button></div>
+          <div className="gameplay-tool-empty"><strong>{state === "indexing" ? "Highlights unlock after the final deduplicated index is ready." : "Index clips to create highlights."}</strong><button type="button" onClick={() => focusToolTab("clips")}>Go to Clips</button></div>
         )}
       </div>
     </section>
