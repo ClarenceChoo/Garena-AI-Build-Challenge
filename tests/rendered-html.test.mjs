@@ -1275,6 +1275,195 @@ test("post-game review grounds every claim, clamps Director beats, and abstains 
   }
 });
 
+test("post-game review retries only incomplete or malformed structured output once", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousCoachModel = process.env.OPENAI_COACH_MODEL;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  process.env.OPENAI_COACH_MODEL = "gpt-coach-retry-test";
+  const fixture = coachingFixture();
+  const requestBody = {
+    clips: fixture.clips,
+    segments: fixture.segments,
+    indexCompleteness: "complete",
+    voiceAnalysisEnabled: true,
+  };
+  let scenario = "incomplete-then-valid";
+  let upstreamCalls = [];
+
+  function upstreamResponse(body, requestId, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json", "x-request-id": requestId },
+    });
+  }
+
+  function completedBody(id, payload = validRawReview()) {
+    return {
+      id,
+      model: "gpt-coach-retry-test-2026-08-01",
+      status: "completed",
+      incomplete_details: null,
+      output: [{
+        id: `message-${id}`,
+        type: "message",
+        status: "completed",
+        role: "assistant",
+        content: [{ type: "output_text", text: JSON.stringify(payload), annotations: [] }],
+      }],
+      usage: { input_tokens: 720, output_tokens: 330 },
+    };
+  }
+
+  function incompleteBody(id) {
+    return {
+      id,
+      model: "gpt-coach-retry-test-2026-08-01",
+      status: "incomplete",
+      incomplete_details: { reason: "max_output_tokens" },
+      output: [{
+        id: `message-${id}`,
+        type: "message",
+        status: "incomplete",
+        role: "assistant",
+        content: [{ type: "output_text", text: "{\"answerType\":\"review\",\"title\":\"truncated", annotations: [] }],
+      }],
+      usage: { input_tokens: 720, output_tokens: 8_000 },
+    };
+  }
+
+  async function requestReview() {
+    return await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  function reset(nextScenario) {
+    scenario = nextScenario;
+    upstreamCalls = [];
+  }
+
+  globalThis.fetch = async (_url, init) => {
+    const outbound = JSON.parse(init.body);
+    upstreamCalls.push(outbound);
+    const attempt = upstreamCalls.length;
+    const requestId = `req-review-${scenario}-${attempt}`;
+    if (scenario === "retry-network-error" && attempt === 2) {
+      throw new Error("The retry lost its upstream connection before receiving response headers.");
+    }
+    if (scenario === "upstream-error") {
+      return upstreamResponse({ error: { message: "Upstream review service failed." } }, requestId, 500);
+    }
+    if (scenario === "completed-empty") {
+      return upstreamResponse({
+        id: `resp-review-${scenario}-${attempt}`,
+        model: "gpt-coach-retry-test-2026-08-01",
+        status: "completed",
+        incomplete_details: null,
+        output: [],
+        usage: { input_tokens: 720, output_tokens: 0 },
+      }, requestId);
+    }
+    if (scenario === "malformed-then-valid" && attempt === 1) {
+      return upstreamResponse({
+        id: `resp-review-${scenario}-${attempt}`,
+        model: "gpt-coach-retry-test-2026-08-01",
+        status: "completed",
+        incomplete_details: null,
+        output_text: "{\"answerType\":\"review\",\"title\":",
+        usage: { input_tokens: 720, output_tokens: 12 },
+      }, requestId);
+    }
+    if (scenario === "incomplete-twice" || attempt === 1) {
+      return upstreamResponse(incompleteBody(`resp-review-${scenario}-${attempt}`), requestId);
+    }
+    const payload = scenario === "semantic-invalid-after-retry"
+      ? validRawReview({ invalidEventId: "ghost-event" })
+      : validRawReview();
+    return upstreamResponse(completedBody(`resp-review-${scenario}-${attempt}`, payload), requestId);
+  };
+
+  try {
+    reset("incomplete-then-valid");
+    const recoveredIncompleteResponse = await requestReview();
+    assert.equal(recoveredIncompleteResponse.status, 200, await recoveredIncompleteResponse.clone().text());
+    const recoveredIncomplete = await recoveredIncompleteResponse.json();
+    assert.equal(upstreamCalls.length, 2);
+    assert.deepEqual(upstreamCalls.map((request) => request.max_output_tokens), [8_000, 16_000]);
+    for (const outbound of upstreamCalls) {
+      assert.equal(outbound.store, false);
+      assert.equal(outbound.text.verbosity, "low");
+      assert.equal(outbound.text.format.type, "json_schema");
+      assert.equal(outbound.text.format.strict, true);
+      assert.equal(outbound.text.format.name, "unseen_gameplay_post_review");
+    }
+    assert.equal(recoveredIncomplete.api.responseId, "resp-review-incomplete-then-valid-2");
+    assert.equal(recoveredIncomplete.api.requestId, "req-review-incomplete-then-valid-2");
+
+    reset("malformed-then-valid");
+    const recoveredMalformedResponse = await requestReview();
+    assert.equal(recoveredMalformedResponse.status, 200, await recoveredMalformedResponse.clone().text());
+    const recoveredMalformed = await recoveredMalformedResponse.json();
+    assert.equal(upstreamCalls.length, 2);
+    assert.deepEqual(upstreamCalls.map((request) => request.max_output_tokens), [8_000, 16_000]);
+    assert.equal(recoveredMalformed.api.responseId, "resp-review-malformed-then-valid-2");
+    assert.equal(recoveredMalformed.api.requestId, "req-review-malformed-then-valid-2");
+
+    reset("incomplete-twice");
+    const exhaustedResponse = await requestReview();
+    assert.equal(exhaustedResponse.status, 502);
+    const exhausted = await exhaustedResponse.json();
+    assert.equal(upstreamCalls.length, 2, "an incomplete retry must not trigger a third call");
+    assert.deepEqual(upstreamCalls.map((request) => request.max_output_tokens), [8_000, 16_000]);
+    assert.equal(exhausted.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.equal(exhausted.error.requestId, "req-review-incomplete-twice-2");
+
+    reset("semantic-invalid-after-retry");
+    const semanticInvalidResponse = await requestReview();
+    assert.equal(semanticInvalidResponse.status, 502);
+    const semanticInvalid = await semanticInvalidResponse.json();
+    assert.equal(upstreamCalls.length, 2, "semantic validation must not cause a third OpenAI call");
+    assert.equal(semanticInvalid.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.match(semanticInvalid.error.message, /unknown event/i);
+
+    reset("completed-empty");
+    const emptyResponse = await requestReview();
+    assert.equal(emptyResponse.status, 502);
+    const empty = await emptyResponse.json();
+    assert.equal(upstreamCalls.length, 1, "a completed response with no output must not be retried");
+    assert.equal(empty.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.equal(empty.error.requestId, "req-review-completed-empty-1");
+
+    reset("retry-network-error");
+    const retryNetworkErrorResponse = await requestReview();
+    assert.equal(retryNetworkErrorResponse.status, 502);
+    const retryNetworkError = await retryNetworkErrorResponse.json();
+    assert.equal(upstreamCalls.length, 2, "a failed network retry must not trigger a third call");
+    assert.equal(retryNetworkError.error.code, "OPENAI_ERROR");
+    assert.equal(
+      retryNetworkError.error.requestId,
+      "req-review-retry-network-error-1",
+      "the first attempt request ID must survive when the retry fails before receiving headers",
+    );
+
+    reset("upstream-error");
+    const upstreamErrorResponse = await requestReview();
+    assert.equal(upstreamErrorResponse.status, 502);
+    const upstreamError = await upstreamErrorResponse.json();
+    assert.equal(upstreamCalls.length, 1, "non-2xx upstream responses must not be retried");
+    assert.equal(upstreamError.error.code, "OPENAI_ERROR");
+    assert.equal(upstreamError.error.requestId, "req-review-upstream-error-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+    if (previousCoachModel === undefined) delete process.env.OPENAI_COACH_MODEL;
+    else process.env.OPENAI_COACH_MODEL = previousCoachModel;
+  }
+});
+
 test("Ask Coach bounds conversation context and resolves only known scoped citations", { concurrency: false }, async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   const originalFetch = globalThis.fetch;
