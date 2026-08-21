@@ -77,16 +77,16 @@ a 30/60/90-second MP4/WebM reel with validated cuts and evidence-based captions.
 ## Try the complete experience
 
 For a live review, use current Chrome or Edge and H.264/AAC MP4 clips with a
-combined duration no longer than 2:00. **Fast Demo** defaults on for those short
-judge sessions. Longer sessions remain supported and automatically use Standard
-indexing. Keep a pre-indexed tab open as a backup because refreshing
+combined duration no longer than 2:00. **Fast mode** defaults on for sessions up
+to 2:00 combined. Longer sessions remain supported and automatically use
+**Standard mode**. Keep a pre-indexed tab open as a backup because refreshing
 intentionally clears the private in-memory index.
 
 1. Add and label one gameplay recording. Use matching squad POVs to demonstrate
    team review and Director source switching.
-2. Confirm recording permission and leave **Fast Demo** on. Voice analysis is a
+2. Confirm recording permission and leave **Fast mode** on. Voice analysis is a
    separate consented step; enabling it adds transcription work and latency.
-3. Select **Fast index with AI** and watch the detected game context and verified
+3. Select **Index in Fast mode** and watch the detected game context and verified
    event count appear.
 4. Search for a moment you know occurs, such as **“When did I get flanked?”**,
    **“Find the final clutch”**, or **“Where did we lose the objective?”**
@@ -149,19 +149,19 @@ flowchart LR
 | --- | --- |
 | Recordings | 1–4 local files |
 | Session limit | 60 minutes / 2 GiB combined |
-| Fast Demo | Default on at up to 2:00 combined · 12-second windows every 10 seconds · 2-second overlap |
+| Fast mode | Default on at up to 2:00 combined · 12-second windows every 10 seconds · 2-second overlap |
 | Standard mode | Automatic fallback above 2:00 · bounded two-minute segments |
 | Segment evidence | At most 24 selected images per scheduled window |
 | Parallelism | Up to eight AI segment requests · at most two local media decoders |
 | Search results | Up to five ranked, playable matches |
 | Reel outputs | 30/60/90 seconds; landscape or vertical |
 
-Fast Demo schedules a 12-second analysis window every 10 seconds without
+Fast mode schedules a 12-second analysis window every 10 seconds without
 physically splitting the source files. Up to eight window requests can run
 concurrently while a separate gate limits browser decoding to at most two local
 media jobs. Events repeated in the two-second overlaps are de-duplicated before
 the index reaches Search, Coach, or Highlights. Sessions over 2:00 combined
-automatically retain the Standard two-minute segmentation path.
+automatically use Standard mode with bounded two-minute segments.
 
 The browser performs a balanced local scan every two seconds, retains context,
 and adds evidence around scene/HUD changes and audio-energy spikes. Low-detail
@@ -263,7 +263,7 @@ rendering checks. A separate `npm run build` is optional.
 | Index button is disabled | Add a valid clip and confirm recording permission |
 | `AI_NOT_CONFIGURED` | Verify `OPENAI_API_KEY`, then restart the dev server |
 | Video will not decode | Convert to H.264/AAC MP4 and use current Chrome/Edge |
-| A live run is slow | Keep combined footage at or below 2:00, leave Fast Demo on, and leave voice analysis off |
+| A live run is slow | Keep combined footage at or below 2:00, leave Fast mode on, and leave voice analysis off |
 | Team review is absent | Use matching POVs from the same session; UNSEEN will not guess the relationship |
 | Search abstains | Try a visually supported query or clearer footage; no timestamp is invented |
 
@@ -395,7 +395,7 @@ and on-device candidate detection.
 
 | Route / module | Responsibility |
 | --- | --- |
-| `POST /api/analyze/index-segment` | Evidence-linked events from bounded Standard segments or overlapping Fast Demo windows |
+| `POST /api/analyze/index-segment` | Evidence-linked events from bounded Standard-mode segments or overlapping Fast-mode windows |
 | `POST /api/analyze/search` | Validated ranked hits or explicit insufficient evidence |
 | `POST /api/analyze/review` | Player/team coaching and optional Director plan |
 | `POST /api/analyze/coach` | Evidence-scoped follow-up coaching |
@@ -409,7 +409,7 @@ and on-device candidate detection.
 ## Validation and prototype boundaries
 
 The automated suite covers production rendering, authentication, bounded
-parallel scheduling, Fast Demo windowing and de-duplication, cancellation,
+parallel scheduling, Fast-mode windowing and de-duplication, cancellation,
 structured request shape, OpenAI provenance, event citation validation,
 unknown-evidence rejection, consent-gated transcription, explicit abstention,
 review/source mapping, rating gates, Director clamping, bounded Coach history,

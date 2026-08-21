@@ -48,13 +48,13 @@ test("fast windows use a ten-second stride with two seconds of overlap", () => {
   assert.throws(() => createSegmentWindows(10_000, "turbo"), /unknown gameplay segmentation mode/i);
 });
 
-test("two thirty-five-second demo clips fit exactly one eight-call wave", () => {
+test("two thirty-five-second clips fit exactly one eight-call wave", () => {
   const jobs = [35_000, 35_000].flatMap((durationMs) => createSegmentWindows(durationMs, "fast"));
   assert.equal(jobs.length, 8);
   assert.ok(jobs.every(({ startMs, endMs }) => endMs > startMs));
 });
 
-test("Fast Demo falls back to normal mode above two combined minutes", () => {
+test("Fast mode falls back to normal mode above two combined minutes", () => {
   assert.equal(selectGameplaySegmentationMode(120_000, true), "fast");
   assert.equal(selectGameplaySegmentationMode(120_001, true), "normal");
   assert.equal(selectGameplaySegmentationMode(35_000, false), "normal");
