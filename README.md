@@ -92,16 +92,6 @@ clears the private in-memory index.
    what to improve next match.
 6. Play the Director's Cut, then generate a 30-second vertical or landscape reel.
 
-### Two-minute judge script
-
-| Time | What to show |
-| --- | --- |
-| 0:00–0:20 | Add a short permitted clip and explain that the raw file stays local |
-| 0:20–0:40 | Start indexing; point out parallel segment processing and detected context |
-| 0:40–1:05 | Search a known event and open its exact source timestamp |
-| 1:05–1:30 | Inspect a cited player/Squad coaching recommendation |
-| 1:30–1:50 | Play Director beats or ask Coach a follow-up question |
-| 1:50–2:00 | Plan a 30-second social reel and explain local rendering |
 
 ## Why UNSEEN is different
 
