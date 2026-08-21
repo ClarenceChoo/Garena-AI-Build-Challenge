@@ -9,6 +9,7 @@ export const GAMEPLAY_SEARCH_LIMITS = Object.freeze({
   contextIntervalMs: 10_000,
   maximumFramesPerSegment: 24,
   maximumEventsPerSegment: 12,
+  maximumIndexedSegments: 240,
   maximumIndexedEvents: 360,
   maximumSearchHits: 5,
   maximumAudioChunkBytes: 25 * 1024 * 1024,

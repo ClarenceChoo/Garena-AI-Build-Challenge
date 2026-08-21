@@ -24,9 +24,10 @@ export function gameplayRouteError(error: unknown, fallback: string): Response {
   return gameplayErrorResponse(502, "OPENAI_ERROR", fallback);
 }
 
-export function gameplayOpenAIConfig(apiKey: string) {
+export function gameplayOpenAIConfig(apiKey: string, signal?: AbortSignal) {
   return {
     apiKey,
+    signal,
     searchModel:
       process.env.OPENAI_SEARCH_MODEL?.trim() ||
       process.env.OPENAI_VISION_MODEL?.trim() ||

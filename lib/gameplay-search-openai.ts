@@ -42,6 +42,7 @@ export interface GameplaySearchOpenAIConfig {
   transcriptionModel?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export class GameplaySearchOpenAIError extends Error {
@@ -74,6 +75,30 @@ interface ResponseEnvelope<T> {
   inputTokens: number;
   outputTokens: number;
 }
+
+interface StructuredResponseOptions {
+  verbosity?: "low" | "medium" | "high";
+}
+
+const SHORT_INDEX_WINDOW_MAXIMUM_MS = 12_500;
+const SHORT_INDEX_MAXIMUM_OUTPUT_TOKENS = 2_200;
+const STANDARD_INDEX_MAXIMUM_OUTPUT_TOKENS = 3_400;
+
+const STANDARD_GAMEPLAY_INDEX_INSTRUCTIONS = [
+  "Index one segment of a gameplay recording without relying on a game-specific preset.",
+  "Infer the game and mode only when the frames support them. Detect eliminations, assists, deaths, objectives, clutches, mistakes, observable reactions, dialogue, transitions, and other meaningful events.",
+  "Every event must cite supplied frame IDs. Cite transcript IDs only when their text directly supports the event. Preserve exact source timestamps. Read player names from visible HUD text only; use an empty actor list or null target when identity is unreadable.",
+  "Treat audio RMS and peak values only as timing signals, not proof of a specific sound or emotion. Do not infer intent, hidden actions, identity, or causality. It is valid to return zero events when evidence is weak.",
+  "Use integer importance from 0 to 100 and confidence from 0 to 1.",
+].join("\n");
+
+const SHORT_GAMEPLAY_INDEX_INSTRUCTIONS = [
+  "Index this short gameplay window. Return concise structured fields and only distinct, meaningful events supported by supplied evidence.",
+  "Infer game and mode only when visible. Detect eliminations, assists, deaths, objectives, clutches, mistakes, reactions, dialogue, transitions, and other meaningful events.",
+  "Every event must cite supplied frame IDs; cite transcript IDs only when directly supported. Preserve exact timestamps. Use visible HUD text for names; otherwise leave actors empty and target null.",
+  "Audio RMS and peak are timing signals only. Do not infer sounds, emotion, intent, hidden actions, identity, or causality. Return zero events when evidence is weak.",
+  "Return at most the four strongest distinct events. Use integer importance 0-100 and confidence 0-1. Keep contextSummary, title, description, and ocrText brief.",
+].join("\n");
 
 const EVENT_TYPES: GameplayEventType[] = [
   "elimination",
@@ -450,16 +475,26 @@ async function fetchWithTimeout(
   init: RequestInit,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(15_000, config.timeoutMs ?? 180_000));
+  let timedOut = false;
+  const abortFromRequest = () => controller.abort(config.signal?.reason);
+  if (config.signal?.aborted) abortFromRequest();
+  else config.signal?.addEventListener("abort", abortFromRequest, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, Math.max(15_000, config.timeoutMs ?? 180_000));
   try {
     return await (config.fetchImpl ?? globalThis.fetch)(input, { ...init, signal: controller.signal });
-  } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError"
+  } catch {
+    const message = timedOut
       ? "OpenAI processing timed out. Retry this segment."
-      : "OpenAI could not be reached.";
+      : config.signal?.aborted
+        ? "OpenAI processing was canceled."
+        : "OpenAI could not be reached.";
     throw new GameplaySearchOpenAIError(message, "OPENAI_ERROR");
   } finally {
     clearTimeout(timeout);
+    config.signal?.removeEventListener("abort", abortFromRequest);
   }
 }
 
@@ -470,6 +505,7 @@ async function requestStructured<T>(
   instructions: string,
   input: unknown,
   maximumOutputTokens: number,
+  options: StructuredResponseOptions = {},
 ): Promise<ResponseEnvelope<T>> {
   const model = config.searchModel ?? "gpt-5.6-sol";
   const response = await fetchWithTimeout(config, RESPONSES_ENDPOINT, {
@@ -486,7 +522,7 @@ async function requestStructured<T>(
       instructions,
       input,
       text: {
-        verbosity: "medium",
+        verbosity: options.verbosity ?? "medium",
         format: { type: "json_schema", name: schemaName, strict: true, schema },
       },
     }),
@@ -571,6 +607,7 @@ export function validateIndexGameplaySegmentRequest(value: unknown): IndexGamepl
   if (value.frames.length < 2 || value.frames.length > GAMEPLAY_SEARCH_LIMITS.maximumFramesPerSegment) {
     throw new TypeError(`Each segment must contain 2-${GAMEPLAY_SEARCH_LIMITS.maximumFramesPerSegment} evidence frames.`);
   }
+  const frameIds = new Set<string>();
   const frames = value.frames.map((frame, index) => {
     if (!record(frame)) throw new TypeError(`Frame ${index + 1} is invalid.`);
     const id = cleanText(frame.id, "", 180);
@@ -581,9 +618,19 @@ export function validateIndexGameplaySegmentRequest(value: unknown): IndexGamepl
     const detail = frame.detail === "high" ? "high" : "low";
     const reasons = new Set(["context", "visual_change", "hud_change", "audio_peak"]);
     const reason = reasons.has(String(frame.reason)) ? frame.reason : "context";
-    if (!id || !imageDataUrl.startsWith("data:image/jpeg;base64,") || width <= 0 || height <= 0 || timestampMs < startMs - 2_000 || timestampMs > endMs + 2_000) {
+    if (
+      !id
+      || !id.startsWith(`${segmentId}-frame-`)
+      || frameIds.has(id)
+      || !imageDataUrl.startsWith("data:image/jpeg;base64,")
+      || width <= 0
+      || height <= 0
+      || timestampMs < startMs - 2_000
+      || timestampMs > endMs + 2_000
+    ) {
       throw new TypeError(`Frame ${index + 1} is invalid.`);
     }
+    frameIds.add(id);
     return { id, timestampMs, imageDataUrl, width, height, detail, reason } as IndexGameplaySegmentRequest["frames"][number];
   });
   const audioFeatures = Array.isArray(value.audioFeatures)
@@ -642,8 +689,16 @@ function validateIndexedEvents(
       throw new GameplaySearchOpenAIError("OpenAI cited an unknown gameplay transcript.", "OPENAI_INVALID_OUTPUT");
     }
     const type = EVENT_TYPES.includes(item.type as GameplayEventType) ? item.type as GameplayEventType : "other";
-    let id = cleanText(item.id, `${request.segment.id}-event-${index + 1}`, 180);
-    if (!id.startsWith(request.segment.id) || seenIds.has(id)) id = `${request.segment.id}-event-${index + 1}`;
+    const fallbackId = `${request.segment.id}-event-${index + 1}`;
+    let id = cleanText(item.id, fallbackId, 180);
+    if (!id.startsWith(`${request.segment.id}-`) || seenIds.has(id)) {
+      id = fallbackId;
+      let collision = 2;
+      while (seenIds.has(id)) {
+        id = `${fallbackId}-${collision}`;
+        collision += 1;
+      }
+    }
     seenIds.add(id);
     const startMs = clamp(numberOrZero(item.startMs), request.segment.startMs, request.segment.endMs);
     return {
@@ -689,6 +744,7 @@ export async function indexGameplaySegment(
   config: GameplaySearchOpenAIConfig,
 ): Promise<GameplaySegmentIndex> {
   const request = validateIndexGameplaySegmentRequest(value);
+  const shortWindow = request.segment.endMs - request.segment.startMs <= SHORT_INDEX_WINDOW_MAXIMUM_MS;
   const frameContent = request.frames.flatMap((frame) => [
     {
       type: "input_text" as const,
@@ -704,13 +760,7 @@ export async function indexGameplaySegment(
     config,
     "unseen_gameplay_segment_index",
     GAMEPLAY_INDEX_SCHEMA,
-    [
-      "Index one segment of a gameplay recording without relying on a game-specific preset.",
-      "Infer the game and mode only when the frames support them. Detect eliminations, assists, deaths, objectives, clutches, mistakes, observable reactions, dialogue, transitions, and other meaningful events.",
-      "Every event must cite supplied frame IDs. Cite transcript IDs only when their text directly supports the event. Preserve exact source timestamps. Read player names from visible HUD text only; use an empty actor list or null target when identity is unreadable.",
-      "Treat audio RMS and peak values only as timing signals, not proof of a specific sound or emotion. Do not infer intent, hidden actions, identity, or causality. It is valid to return zero events when evidence is weak.",
-      "Use integer importance from 0 to 100 and confidence from 0 to 1.",
-    ].join("\n"),
+    shortWindow ? SHORT_GAMEPLAY_INDEX_INSTRUCTIONS : STANDARD_GAMEPLAY_INDEX_INSTRUCTIONS,
     [{
       role: "user",
       content: [
@@ -727,7 +777,8 @@ export async function indexGameplaySegment(
         ...frameContent,
       ],
     }],
-    3_400,
+    shortWindow ? SHORT_INDEX_MAXIMUM_OUTPUT_TOKENS : STANDARD_INDEX_MAXIMUM_OUTPUT_TOKENS,
+    shortWindow ? { verbosity: "low" } : undefined,
   );
   const validated = validateIndexedEvents(response.payload, request);
   return {
@@ -751,9 +802,12 @@ export async function indexGameplaySegment(
 
 function validateSegments(value: unknown, clips: GameplayClipMetadata[]): GameplaySegmentIndex[] {
   if (!Array.isArray(value) || value.length === 0) throw new TypeError("indexed segments are required.");
+  if (value.length > GAMEPLAY_SEARCH_LIMITS.maximumIndexedSegments) {
+    throw new TypeError(`The gameplay index exceeds ${GAMEPLAY_SEARCH_LIMITS.maximumIndexedSegments} segments.`);
+  }
   const clipMap = new Map(clips.map((clip) => [clip.id, clip]));
   const eventIds = new Set<string>();
-  const segments = value.slice(0, 240).map((segment) => {
+  const segments = value.map((segment) => {
     if (!record(segment) || !record(segment.api) || segment.api.real !== true || typeof segment.api.responseId !== "string" || !segment.api.responseId || !Array.isArray(segment.events)) {
       throw new TypeError("Every segment must come from a completed AI index response.");
     }
