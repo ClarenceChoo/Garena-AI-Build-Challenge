@@ -30,6 +30,7 @@
 .gameplay-source > div > button { position: absolute; top: 7px; right: 8px; width: 28px; height: 28px; border: 1px solid rgba(255,255,255,.28); border-radius: 50%; background: rgba(0,0,0,.78); color: #fff; cursor: pointer; }
 .gameplay-source label { display: grid; gap: 5px; padding: 13px 14px 0; color: #747985; font: 700 9px/1 var(--font-geist-mono); letter-spacing: .08em; text-transform: uppercase; }
 .gameplay-source label input { width: 100%; padding: 6px 0 8px; border: 0; border-bottom: 1px solid rgba(255,255,255,.13); outline: none; background: transparent; color: #fff; font: 700 14px/1.2 var(--font-geist-sans); text-transform: none; }
+.gameplay-source label input:disabled { color: #777d87; cursor: not-allowed; }
 .gameplay-source > p { margin: 11px 14px 5px; overflow: hidden; color: #c7cad1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .gameplay-source > small { margin: 0 14px; color: #6f7480; font: 700 9px/1.3 var(--font-geist-mono); }
 .gameplay-add-source { display: grid; place-content: center; gap: 10px; min-height: 280px; padding: 30px; border-style: dashed; color: #9ca1ac; cursor: pointer; text-align: center; transition: .2s ease; }

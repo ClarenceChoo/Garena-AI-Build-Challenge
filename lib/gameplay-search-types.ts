@@ -196,6 +196,180 @@ export interface TranscribeGameplayAudioResponse {
   };
 }
 
+export type GameplayReviewCoverage = "complete" | "partial" | "insufficient";
+
+export type GameplaySessionRelationship =
+  | "single_source"
+  | "likely_same_session"
+  | "mixed_sources"
+  | "uncertain";
+
+export type GameplayCoachingDimension =
+  | "awareness"
+  | "positioning"
+  | "timing"
+  | "decision_making"
+  | "teamwork"
+  | "communication";
+
+export interface GameplayEvidenceRating {
+  dimension: GameplayCoachingDimension;
+  status: "observed" | "not_observed";
+  level: 1 | 2 | 3 | 4 | 5 | null;
+  confidence: number;
+  rationale: string;
+  eventIds: string[];
+}
+
+export interface GameplayReviewStrength {
+  title: string;
+  summary: string;
+  eventIds: string[];
+}
+
+export interface GameplayReviewImprovement {
+  title: string;
+  whatHappened: string;
+  whyItMattered: string;
+  betterDecision: string;
+  eventIds: string[];
+}
+
+export interface GameplayPracticeAction {
+  title: string;
+  action: string;
+  successMeasure: string;
+  eventIds: string[];
+}
+
+export interface GameplayPlayerReview {
+  clipId: string;
+  summary: string;
+  primaryPriority: string;
+  ratings: GameplayEvidenceRating[];
+  strengths: GameplayReviewStrength[];
+  improvements: GameplayReviewImprovement[];
+  nextSessionPlan: GameplayPracticeAction[];
+}
+
+export interface GameplayTeamReview {
+  summary: string;
+  primaryPriority: string;
+  ratings: GameplayEvidenceRating[];
+  strengths: GameplayReviewStrength[];
+  improvements: GameplayReviewImprovement[];
+  nextSessionPlan: GameplayPracticeAction[];
+}
+
+export interface GameplaySessionRelationshipAssessment {
+  status: GameplaySessionRelationship;
+  confidence: number;
+  summary: string;
+  eventIds: string[];
+}
+
+export type DirectorNarrativeRole =
+  | "setup"
+  | "action"
+  | "turning_point"
+  | "reaction"
+  | "resolution"
+  | "context";
+
+export interface DirectorPreviewBeat {
+  order: number;
+  eventId: string;
+  clipId: string;
+  startMs: number;
+  endMs: number;
+  narrativeRole: DirectorNarrativeRole;
+  caption: string;
+  reason: string;
+}
+
+export interface DirectorPreviewPlan {
+  id: string;
+  title: string;
+  subtitle: string;
+  durationMs: number;
+  sourceCount: number;
+  beats: DirectorPreviewBeat[];
+}
+
+export interface ReviewGameplayRequest {
+  clips: GameplayClipMetadata[];
+  segments: GameplaySegmentIndex[];
+  indexCompleteness: "complete" | "partial";
+  voiceAnalysisEnabled: boolean;
+}
+
+export interface GameplayPostReview {
+  answerType: "review" | "insufficient_evidence";
+  reviewId: string;
+  title: string;
+  summary: string;
+  coverage: GameplayReviewCoverage;
+  indexedClipCount: number;
+  indexedSegmentCount: number;
+  indexedEventCount: number;
+  voiceEvidenceAvailable: boolean;
+  sessionRelationship: GameplaySessionRelationshipAssessment;
+  playerReviews: GameplayPlayerReview[];
+  teamReview: GameplayTeamReview | null;
+  directorPreview: DirectorPreviewPlan | null;
+  api: {
+    real: true;
+    responseId: string;
+    requestId: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  } | null;
+}
+
+export type GameplayCoachScope =
+  | { type: "player"; clipId: string }
+  | { type: "team"; clipId: null };
+
+export interface GameplayCoachMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CoachGameplayRequest {
+  question: string;
+  scope: GameplayCoachScope;
+  history: GameplayCoachMessage[];
+  clips: GameplayClipMetadata[];
+  segments: GameplaySegmentIndex[];
+  review: GameplayPostReview;
+}
+
+export interface GameplayCoachCitation {
+  eventId: string;
+  clipId: string;
+  startMs: number;
+  endMs: number;
+  title: string;
+  evidenceFrameIds: string[];
+  transcriptSegmentIds: string[];
+}
+
+export interface GameplayCoachResponse {
+  answerType: "coaching" | "insufficient_evidence";
+  answer: string;
+  nextAction: string;
+  citations: GameplayCoachCitation[];
+  api: {
+    real: true;
+    responseId: string;
+    requestId: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
 export type GameplaySearchApiErrorCode =
   | "AI_NOT_CONFIGURED"
   | "UNAUTHORIZED"
