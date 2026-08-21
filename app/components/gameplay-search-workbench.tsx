@@ -93,7 +93,7 @@ const GIB = 1024 * 1024 * 1024;
 const MAXIMUM_INDEX_API_CONCURRENCY = 8;
 const MAXIMUM_LOCAL_MEDIA_CONCURRENCY = 2;
 const MAXIMUM_TRANSCRIPTION_API_CONCURRENCY = 4;
-const FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS = 2 * 60_000;
+const FAST_MODE_MAXIMUM_TOTAL_DURATION_MS = 2 * 60_000;
 
 class IndexRequestError extends Error {
   constructor(
@@ -207,7 +207,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   const [clips, setClips] = useState<GameplayClip[]>([]);
   const [permissionConfirmed, setPermissionConfirmed] = useState(false);
   const [voiceAnalysisEnabled, setVoiceAnalysisEnabled] = useState(false);
-  const [fastDemoEnabled, setFastDemoEnabled] = useState(true);
+  const [fastModeEnabled, setFastModeEnabled] = useState(true);
   const [backend, setBackend] = useState<SearchBackendStatus | null>(null);
   const [state, setState] = useState<WorkbenchState>("idle");
   const [message, setMessage] = useState("Add up to four gameplay videos to build a private, temporary index.");
@@ -293,11 +293,11 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
   const totalDurationMs = useMemo(() => clips.reduce((sum, clip) => sum + clip.durationMs, 0), [clips]);
   const segmentationMode = selectGameplaySegmentationMode(
     totalDurationMs,
-    fastDemoEnabled,
-    FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS,
+    fastModeEnabled,
+    FAST_MODE_MAXIMUM_TOTAL_DURATION_MS,
   );
-  const fastDemoEligible = totalDurationMs <= FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS;
-  const fastDemoActive = segmentationMode === "fast";
+  const fastModeEligible = totalDurationMs <= FAST_MODE_MAXIMUM_TOTAL_DURATION_MS;
+  const fastModeActive = segmentationMode === "fast";
   const completedJobs = jobs.filter((job) => job.status === "complete").length;
   const failedJobs = jobs.filter((job) => job.status === "failed").length;
   const canceledJobs = jobs.filter((job) => job.status === "canceled").length;
@@ -467,8 +467,8 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       resetDerivedState();
       setClips((current) => [...current, ...next]);
       setState("idle");
-      setMessage(fastDemoEnabled && runningDuration > FAST_DEMO_MAXIMUM_TOTAL_DURATION_MS
-        ? `${next.length} source${next.length === 1 ? "" : "s"} added. This session exceeds 2:00, so Standard indexing will be used.`
+      setMessage(fastModeEnabled && runningDuration > FAST_MODE_MAXIMUM_TOTAL_DURATION_MS
+        ? `${next.length} source${next.length === 1 ? "" : "s"} added. This session exceeds 2:00, so Standard mode will be used.`
         : `${next.length} source${next.length === 1 ? "" : "s"} added. Raw video remains on this device.`);
     }
   }
@@ -624,7 +624,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           if (!clip) continue;
           updateJob(job.id, { status: "running", attempts: job.attempts + 1, message: "Waiting for local decoder" });
           setMessage(fastMode
-            ? `Fast Demo · ${workerCount} windows in parallel · ${extractionConcurrency} local decoder${extractionConcurrency === 1 ? "" : "s"}`
+            ? `Fast mode · ${workerCount} windows in parallel · ${extractionConcurrency} local decoder${extractionConcurrency === 1 ? "" : "s"}`
             : phase === "context"
             ? `Detecting game context from ${workerCount} clip${workerCount === 1 ? "" : "s"} in parallel`
             : `Indexing ${workerCount} segments in parallel · ${extractionConcurrency} local decoder${extractionConcurrency === 1 ? "" : "s"}`);
@@ -762,12 +762,12 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
             : job,
         ));
       }
-      const result = await processJobs(work, transcriptMap, controller, fastDemoActive);
+      const result = await processJobs(work, transcriptMap, controller, fastModeActive);
       segmentsRef.current = result.completedSegments;
       setSegments(result.completedSegments);
       setState(result.failedCount > 0 ? "partial" : "ready");
-      setMessage(fastDemoActive
-        ? "Fast Demo index ready. Overlap duplicates were removed before Search and Coach unlocked."
+      setMessage(fastModeActive
+        ? "Fast mode index ready. Overlap duplicates were removed before Search and Coach unlocked."
         : "Indexing finished. AI coaching is generating while the verified timeline stays searchable.");
     } catch (error) {
       if (controller.signal.aborted) {
@@ -1005,37 +1005,37 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           <span><strong>{formatTime(totalDurationMs)}</strong> / 60:00</span>
           <span><strong>{readableBytes(totalBytes)}</strong> / 2 GB</span>
           <span><strong>{eventCount}</strong> events</span>
-          <span><strong>{fastDemoActive ? "Fast" : "Standard"}</strong> index</span>
+          <span><strong>{fastModeActive ? "Fast mode" : "Standard mode"}</strong></span>
           {segments.length > 0 && <span><strong>{context.game}</strong> / {context.mode}</span>}
         </div>
 
-        <label className={`gameplay-fast-demo-option${fastDemoEnabled ? " selected" : ""}`}>
+        <label className={`gameplay-fast-mode-option${fastModeEnabled ? " selected" : ""}`}>
           <input
             type="checkbox"
             role="switch"
-            aria-labelledby="gameplay-fast-demo-label"
-            aria-describedby="gameplay-fast-demo-description"
-            checked={fastDemoEnabled}
+            aria-labelledby="gameplay-fast-mode-label"
+            aria-describedby="gameplay-fast-mode-description"
+            checked={fastModeEnabled}
             disabled={state === "indexing"}
             onChange={(event) => {
               const enabled = event.target.checked;
-              setFastDemoEnabled(enabled);
+              setFastModeEnabled(enabled);
               resetDerivedState();
               setState("idle");
               setMessage(enabled
-                ? fastDemoEligible
-                  ? "Fast Demo enabled. Short clips use 12s windows every 10s; voice analysis still adds time."
-                  : "Fast Demo is on, but this session exceeds 2:00 combined and will use Standard indexing."
-                : "Standard indexing selected. Recommended for long gameplay sessions.");
+                ? fastModeEligible
+                  ? "Fast mode enabled. Short clips use 12s windows every 10s; voice analysis still adds time."
+                  : "Fast mode is selected, but this session exceeds 2:00 combined and will use Standard mode."
+                : "Standard mode selected. Recommended for long gameplay sessions.");
             }}
           />
           <span>
-            <strong id="gameplay-fast-demo-label">Fast Demo</strong>
-            <small id="gameplay-fast-demo-description">Parallel indexing for judge sessions up to 2:00 combined. Uses 12s windows every 10s; longer sessions automatically fall back to Standard. Voice stays separately controlled and adds time.</small>
+            <strong id="gameplay-fast-mode-label">Fast mode</strong>
+            <small id="gameplay-fast-mode-description">Parallel indexing for sessions up to 2:00 combined. Uses 12s windows every 10s; longer sessions automatically use Standard mode. Voice stays separately controlled and adds time.</small>
           </span>
-          <span className="gameplay-fast-demo-switch" aria-hidden="true">
+          <span className="gameplay-fast-mode-switch" aria-hidden="true">
             <i />
-            <b>{fastDemoEnabled ? fastDemoEligible ? "ON" : "STD" : "OFF"}</b>
+            <b>{fastModeEnabled ? fastModeEligible ? "FAST" : "STD" : "STD"}</b>
           </span>
         </label>
 
@@ -1089,7 +1089,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           ) : retryableJobs > 0 ? (
             <button type="button" className="secondary" disabled={!canRetryIndex} onClick={() => void startIndexing(true)}>Retry {retryableJobs} unfinished</button>
           ) : null}
-          <button type="button" disabled={!canIndex} onClick={() => void startIndexing(false)}>{segments.length ? "Rebuild index" : fastDemoActive ? "Fast index with AI ✦" : "Index footage with AI ✦"}</button>
+          <button type="button" disabled={!canIndex} onClick={() => void startIndexing(false)}>{segments.length ? "Rebuild index" : fastModeActive ? "Index in Fast mode ✦" : "Index in Standard mode ✦"}</button>
         </div>
       </div>
       {jobs.length > 0 && (

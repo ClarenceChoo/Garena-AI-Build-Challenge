@@ -21,15 +21,15 @@ The upload path is implemented in three bounded layers:
   credentials, invalid consent, and upstream failures rather than substituting
   fixture output.
 
-### Fast Demo and Standard indexing
+### Fast mode and Standard mode
 
-The **Fast Demo** preference defaults on, but it activates only when all selected
+The **Fast mode** preference defaults on, but it activates only when all selected
 clips total 2:00 or less. It schedules a 12-second window every 10 seconds, so
 adjacent windows overlap by two seconds. The files are not physically split.
 When combined duration exceeds 2:00—or when the preference is off—the client
-automatically uses Standard indexing with bounded two-minute windows.
+automatically uses **Standard mode** with bounded two-minute windows.
 
-Fast Demo can issue up to eight segment API calls concurrently. Evidence
+Fast mode can issue up to eight segment API calls concurrently. Evidence
 extraction is gated separately to at most two local media decoders, so network
 parallelism does not remove the browser-side decoding bound. Events repeated in
 overlapping windows are deterministically de-duplicated as results arrive and
@@ -38,7 +38,7 @@ Highlights.
 
 Voice analysis remains an independent, consent-gated option. When enabled, its
 audio chunks use a separate bounded parallel transcription queue before segment
-indexing. It is not disabled by Fast Demo and adds transcription work and
+indexing. It is not disabled by Fast mode and adds transcription work and
 latency. These bounds improve scheduling for short clips but do not guarantee a
 particular completion time.
 
