@@ -17,6 +17,11 @@ export async function GET(): Promise<Response> {
               process.env.OPENAI_SEARCH_MODEL?.trim() ||
               process.env.OPENAI_VISION_MODEL?.trim() ||
               "gpt-5.6-sol",
+            coach:
+              process.env.OPENAI_COACH_MODEL?.trim() ||
+              process.env.OPENAI_SEARCH_MODEL?.trim() ||
+              process.env.OPENAI_VISION_MODEL?.trim() ||
+              "gpt-5.6-sol",
             searchTranscription:
               process.env.OPENAI_SEARCH_TRANSCRIPTION_MODEL?.trim() ||
               "whisper-1",

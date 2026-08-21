@@ -1,36 +1,31 @@
 # UNSEEN
 
-UNSEEN searches long gameplay recordings and reconstructs multiplayer matches
-across the perspectives of an entire squad. It turns source-bound evidence into
-four outputs:
+UNSEEN searches long gameplay recordings and turns a temporary, source-bound
+event index into five connected outputs:
 
 - natural-language **Gameplay Search** with exact playable citations;
 - downloadable **30/60/90-second highlight reels**;
-- a multi-perspective **Director's Cut**;
-- a personalised **What You Missed** feed; and
-- **Ask UNSEEN**, grounded session search with playable evidence.
+- an automatic **Post-Game Review** for every uploaded perspective, plus a team
+  review when the sources can be reliably connected;
+- a playable, multi-source **Director's Cut** preview; and
+- two grounded assistants: **Ask UNSEEN** for moment retrieval and **Ask Coach**
+  for actionable improvement advice.
 
 This repository is the judge-facing proof of concept for the Garena AI Build
 Challenge. Its default workflow accepts one to four local recordings totaling
 up to 60 minutes and 2 GB, adaptively indexes selected frames, and searches a
-temporary in-memory event ledger without uploading raw footage. It can compile
-and render a source-audio highlight reel locally in current Chrome or Edge.
-The secondary squad workflow accepts two to four real local recordings,
-extracts timestamped frames and optional opted-in audio in the browser, analyzes
-each POV with OpenAI, and runs a second model pass that links evidence across
-the squad. Three preloaded real-footage clips from Garena's verified Free Fire
-Esports channel provide a zero-upload demonstration. A separate, clearly
-labeled three-player simulation remains only for private squad features that an
-official broadcast cannot expose, such as synchronized personal POVs and comms.
+temporary in-memory event ledger without uploading raw footage. It can render a
+source-audio highlight reel locally in current Chrome or Edge, generate
+evidence-backed coaching, and play an AI-planned Director's Cut by switching
+between the original local files at validated boundaries.
 
 ## Contents
 
 - [Run locally](#run-locally)
 - [Gameplay Search and reel export](#gameplay-search-and-reel-export)
-- [Live AI flow](#live-ai-flow)
-- [Preloaded real-footage demo and interaction simulator](#preloaded-real-footage-demo-and-interaction-simulator)
+- [Post-Game Review, Director's Cut, and Ask Coach](#post-game-review-directors-cut-and-ask-coach)
 - [Product architecture](#product-architecture)
-- [Demo API](#demo-api)
+- [Analysis API](#analysis-api)
 - [Validation](#validation)
 - [Privacy and safety defaults](#privacy-and-safety-defaults)
 - [Prototype boundaries](#prototype-boundaries)
@@ -48,30 +43,31 @@ npm run dev
 
 Open the local URL printed by the development server.
 
-The preloaded official-footage demo and disclosed interaction simulator work
-without credentials. The live upload
-workflow deliberately does not: it fails closed instead of substituting
-prewritten output. To run real vision, transcription, and cross-clip linking:
+The upload workflow deliberately fails closed instead of substituting
+prewritten output. To run real vision, transcription, search, review, and
+coaching:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Add `OPENAI_API_KEY` to `.env.local`. Vision, linking, and gameplay search
-default to `gpt-5.6-sol`; squad audio defaults to `gpt-4o-mini-transcribe`, and
-long-gameplay transcript segments default to `whisper-1`.
+Add `OPENAI_API_KEY` to `.env.local`. Vision and gameplay search default to
+`gpt-5.6-sol`; long-gameplay transcript segments default to `whisper-1`.
+`OPENAI_COACH_MODEL` can override the review and coaching model; otherwise it
+inherits the configured search/vision model.
 Never expose the key to the browser or commit `.env.local`.
 
 ## Gameplay Search and reel export
 
 1. Open the default **Gameplay Search** tab and add one to four videos totaling
    no more than 60 minutes and 2 GB.
-2. Make the required audio declaration and confirm recording permission.
+2. Confirm recording permission. Optionally enable **Analyze voice chat** only
+   when everyone audible agreed to transcription.
 3. Select **Index footage with AI**. The browser scans low-resolution frames
    every two seconds, retains ten-second context, reacts to scene/HUD changes
    and audio-energy spikes, and sends at most 24 timestamped JPEGs per two-minute
-   segment. Two segment requests run concurrently and one failed request is
-   retried once.
+   segment. The bounded worker pool runs up to four segment requests concurrently
+   when the device supports it, and one failed request is retried once.
 4. Search naturally, for example “X kills Y,” “the final clutch,” or “the
    funniest reaction.” UNSEEN returns up to five ranked matches with source
    clip, exact range, confidence, frame/transcript IDs, and a two-second pre-roll
@@ -87,6 +83,31 @@ numeric audio-energy features, and explicitly consented sub-25 MB audio chunks
 reach the APIs. Voice is never transcribed without complete consent; exports
 are muted when audible voices lack complete consent. The index exists only in
 page memory and clears on reload. There is no D1 or R2 storage.
+
+## Post-Game Review, Director's Cut, and Ask Coach
+
+After indexing, UNSEEN starts one review request without blocking Gameplay
+Search. The result contains a tab for every uploaded perspective and, when the
+sources can be reliably connected, a **Squad** tab. Each review combines an
+evidence summary, strengths, improvement opportunities, and a three-step plan
+for the next session. Awareness, positioning, timing, decision-making,
+teamwork, and communication use descriptive five-level ratings with confidence
+and cited event IDs. Unsupported categories show **Not observed** rather than a
+fabricated score; communication cannot be observed without consented,
+transcript-linked evidence.
+
+The review also includes a 16:9 **Director's Cut** preview with two to eight
+validated beats. Playback seeks the original browser-local file, stops at the
+validated boundary, and switches sources between beats. This is an interactive
+preview, not a rendered download; the separate reel creator remains the export
+tool.
+
+**Ask Coach** answers follow-up questions in the context of the selected player
+or Squad tab. Its answers cite known indexed events and open the corresponding
+local source with a two-second pre-roll. If the compact index cannot support the
+question, the API returns `insufficient_evidence`. A failed or partial review
+never disables search, and retrying failed index segments automatically
+replaces a stale partial review.
 
 ## GitHub automatic deployment
 
@@ -109,77 +130,22 @@ Cloudflare Access's authenticated-email header and still applies the same
 secrets, GitHub Actions still runs the full validation suite but safely skips
 the production deploy step.
 
-## Live AI flow
-
-1. Export two to four matching squad POV clips, each up to 3 minutes long.
-2. Add them to the **Live multimodal pipeline** and label each perspective.
-3. Confirm recording permission. Enable voice analysis only when everyone
-   audible opted in.
-4. Select **Analyze with OpenAI**. The browser samples sixteen timestamped JPEG
-   frames per clip and, when allowed, extracts a mono WAV track.
-5. `/api/analyze/clip` transcribes and visually analyzes each real source.
-   Every observation must cite a supplied frame ID.
-6. `/api/analyze/link` aligns and links the independently generated evidence,
-   then returns the squad story and Director's Cut decision list.
-7. The UI exposes OpenAI response IDs, request IDs, model names, token usage,
-   source observations, and click-to-seek timestamps. Missing credentials or
-   invalid model output remain visible failures; no fixture result is used.
-
-Raw video files remain browser-local. Only sampled frames and the optional
-consented audio excerpt are sent to the server and then to OpenAI. The routes
-set `store: false` for Responses API requests and return `Cache-Control:
-no-store`.
-
-## Preloaded real-footage demo and interaction simulator
-
-The submission is zero-setup after the page loads. Three 30-second clips are
-embedded from the verified Free Fire Esports Official YouTube channel and come
-from the same FFWS Global Finals 2025 Clash Squad final. They show the setup,
-AG.DEW gameplay POV, and live team reaction around one real clutch.
-
-Because an official broadcast does not publish synchronized private recordings
-or private squad comms, the deeper squad-only product interactions remain a
-separate labeled simulation. Every simulated event, HUD signal, voice line,
-reaction, synchronization anchor, citation, and edit cut maps back to the local
-simulation files through `session.media`.
-
-Recommended 90-second judge flow:
-
-1. Play any of the three **Preloaded real Garena footage** clips.
-2. Select a clip and run its verified evidence scan.
-3. Launch the clearly labeled multi-POV interaction simulator.
-4. Play the Director's Cut and watch it switch among the simulated source recordings.
-5. Open Rin's top-ranked flank hold and click an evidence row to seek its exact
-   source timestamp.
-6. Switch to **What You Missed** to show Ace-only personalization.
-7. Ask: “What were my teammates doing during my final clutch?” and open one of
-   the answer citations.
-8. End on the media-to-evidence trace: source frame, detector modalities,
-   canonical timestamp, evidence ID, ranking, and edit decision.
-
-The full flow fits comfortably within roughly two minutes. The simulator is
-intentional: it replays deterministic alignment, multimodal observations,
-cross-perspective fusion, ranking, and edit planning over bundled fictional
-recordings. It is never presented as analysis of the official footage or as a
-claim that arbitrary media was uploaded during the page request.
-
----
-
 ## Product architecture
 
 ```text
-three consented recordings
+one to four permitted recordings
         |
         v
-ingest -> align -> understand -> reconstruct -> direct
-        |                     |
-        |                     +-> ranked, evidence-backed moments
+local scan -> evidence index -> search / coach / direct
+        |             |                 |
+        |             |                 +-> validated preview beats
+        |             +-> cited coaching and retrieval
         v
-shared event ledger
+browser-local media
         |
-        +-> Director's Cut
-        +-> What You Missed
-        +-> Ask UNSEEN
+        +-> playable citations
+        +-> Director's Cut preview
+        +-> downloadable social reel
 ```
 
 The product separates live multimodal inference from deterministic benchmark
@@ -188,13 +154,17 @@ evidence:
 - [`lib/gameplay-search-client.ts`](lib/gameplay-search-client.ts) owns adaptive local sampling,
   consented audio chunking, codec selection, and deterministic local reel rendering.
 - [`lib/gameplay-search-openai.ts`](lib/gameplay-search-openai.ts) owns strict gameplay indexing,
-  search, transcription, highlight planning, evidence-ID validation, timestamp clamping, and fail-closed errors.
+  search, transcription, review/coaching generation, highlight planning,
+  evidence-ID validation, timestamp clamping, and fail-closed errors.
 - [`lib/gameplay-search-types.ts`](lib/gameplay-search-types.ts) defines the shared index, event,
-  search-hit, transcript, and highlight-plan contracts.
+  search-hit, transcript, post-review, coaching, Director-preview, and
+  highlight-plan contracts.
 - [`app/api/analyze/index-segment`](app/api/analyze/index-segment), [`search`](app/api/analyze/search),
-  [`highlights`](app/api/analyze/highlights), and [`transcribe`](app/api/analyze/transcribe) are the authenticated gameplay APIs.
+  [`review`](app/api/analyze/review), [`coach`](app/api/analyze/coach),
+  [`highlights`](app/api/analyze/highlights), and [`transcribe`](app/api/analyze/transcribe)
+  are the authenticated gameplay APIs.
 - [`app/components/gameplay-search-workbench.tsx`](app/components/gameplay-search-workbench.tsx) is the
-  default long-footage search and reel-export experience.
+  default long-footage search, review, Director-preview, and reel-export experience.
 - [`lib/unseen-openai.ts`](lib/unseen-openai.ts) owns live transcription, vision, structured output
   validation, cross-POV linking, and fail-closed OpenAI errors.
 - [`lib/real-analysis-types.ts`](lib/real-analysis-types.ts) defines live upload, observation, provenance,
@@ -217,7 +187,7 @@ The evidence ledger and deterministic renderer remain the source of truth.
 
 ---
 
-## Demo API
+## Analysis API
 
 ### `POST /api/analyze/index-segment`
 
@@ -244,6 +214,22 @@ duration budget before any media is decoded.
 
 Accepts only multipart audio chunks under 25 MB with an explicit complete-voice-
 consent assertion. It returns timestamped `whisper-1` transcript segments.
+
+### `POST /api/analyze/review`
+
+Accepts validated clip metadata, the compact completed or partial gameplay
+index, and the voice-analysis state. It returns one evidence-grounded player
+review per source, an optional team review, descriptive ratings, practice
+actions, and an optional `DirectorPreviewPlan`. Every observed rating and
+coaching claim must cite known events; unknown IDs or source mappings are
+rejected.
+
+### `POST /api/analyze/coach`
+
+Accepts a question, the selected player/team scope, at most six recent chat
+messages, the compact event index, and the validated current review. It returns
+a concise coaching answer with one next action and up to four known-event
+citations, or `insufficient_evidence`. It never receives raw media.
 
 ### `POST /api/analyze/clip`
 
@@ -310,7 +296,9 @@ The test suite verifies the production build, server-rendered product shell,
 fail-closed live configuration, multimodal image/transcription request shape,
 real response/request provenance, cross-clip source-link validation,
 gameplay event citation validation, unknown-evidence rejection, consent-gated
-transcription, insufficient-evidence semantics, and reel timestamp clamping,
+transcription, insufficient-evidence semantics, review player/source mapping,
+rating and communication evidence gates, Director-preview clamping, bounded
+coaching history and citations, and reel timestamp clamping. It also verifies
 non-cacheable routes, session and fixture contracts, media fingerprints,
 source-to-shared mappings, reasoning artifacts, benchmark Q&A, and invalid
 input behavior.
@@ -344,18 +332,27 @@ longer match that manifest.
 - Demo endpoints return only fictional data with `Cache-Control: no-store`; there
   is no upload bucket or real player-data store in this prototype.
 - Model prompts use the evidence ledger, not raw unrelated conversation.
-- Answers distinguish observation from inference and include citations.
+- Review and coaching requests contain the compact event index, never raw video,
+  selected JPEG data URLs, audio bytes, or browser-local blob URLs.
+- Answers distinguish observation from inference and include citations. A
+  communication rating remains **Not observed** unless a consented transcript-
+  linked event supports it.
 - Missing or conflicting evidence results in abstention.
 - The product describes observable mistakes without inferring malicious intent.
 
 ## Prototype boundaries
 
-This version analyzes arbitrary browser-decodable short squad recordings and
-long gameplay sessions. It relies on model vision for best-effort HUD reading
+This version analyzes arbitrary browser-decodable long gameplay sessions. It
+relies on model vision for best-effort HUD reading
 and does not run dense frame-by-frame tracking, player re-identification,
 server-side FFmpeg, persistent media storage, or a persistent semantic index.
 Local reel rendering is intentionally limited to codecs exposed by the current
 browser; current Chrome and Edge are the supported demo targets.
+
+The Director's Cut in the Post-Game Review is a temporary browser playback plan,
+not a rendered file. Multi-source team coaching appears only when the supplied
+index supports a shared-session relationship. A rating reflects observed
+evidence coverage, not a complete competitive rank or hidden performance metric.
 
 Production would additionally require authenticated session ownership,
 viewer-scoped responses, working grant/revoke and delete controls, encrypted
@@ -367,30 +364,32 @@ selected game's recording, music, and sharing rules before distribution.
 
 ## Submission evaluation guide
 
-The recommended judging path is local. The preloaded official-footage opener and
-the clearly disclosed interaction simulator run without credentials after
-following [Run locally](#run-locally). A judge can optionally configure their own
-server-side OpenAI key to exercise the live multimodal workflow.
+Configure the server-side OpenAI key, sign in with an allowlisted account, and
+use a short permitted gameplay recording for the fastest judging path:
 
-The repository deliberately keeps these three evidence types distinct:
+1. Add and label one to four clips, optionally enable consented voice analysis,
+   and index the footage.
+2. Search for a known moment and open its exact source citation.
+3. Compare a player review with the Squad tab when available, then open one
+   cited improvement opportunity.
+4. Play the Director's Cut and use its beat controls to show validated local
+   source switching.
+5. Ask Coach what to focus on next match and open an evidence citation.
+6. Generate and download a 30-second social reel.
 
-- **Real footage:** embedded excerpts from the verified Free Fire Esports
-  Official YouTube channel.
-- **Fictional simulation:** committed, synchronized squad recordings used to
-  demonstrate private POVs and opted-in comms unavailable in a public broadcast.
-- **Live AI output:** created only from clips uploaded during the current run
-  after OpenAI is configured. Failed live runs never substitute fixture output.
+All output in that flow is created from clips supplied during the current page
+session. Failed live requests never substitute fixture or scripted output.
 
 ### Challenge requirement mapping
 
 | Case-brief requirement | Implemented evidence |
 | --- | --- |
-| Complete user interaction and outcome | [`app/components/unseen-experience.tsx`](app/components/unseen-experience.tsx) lets judges process a session, review source-linked moments, switch personalized views, and ask grounded questions. |
-| Initial trigger or input | [`app/components/real-analysis-workbench.tsx`](app/components/real-analysis-workbench.tsx) accepts two to four clips, perspective labels, recording permission, and separate voice consent. |
-| Models, tools, and APIs | [`lib/unseen-openai.ts`](lib/unseen-openai.ts) contains the OpenAI Responses and Audio Transcriptions API calls, structured prompts, schemas, provenance capture, and response validation. |
-| Human review points | Users preview clips, confirm permissions, inspect model observations and response IDs, seek cited source timestamps, and review edit decisions. |
+| Complete user interaction and outcome | [`app/components/unseen-experience.tsx`](app/components/unseen-experience.tsx) combines local indexing with playable search, evidence-grounded review/coaching, Director preview, and reel export. |
+| Initial trigger or input | [`app/components/real-analysis-workbench.tsx`](app/components/real-analysis-workbench.tsx) accepts one to four clips, perspective labels, recording permission, and optional consented voice analysis. |
+| Models, tools, and APIs | [`lib/gameplay-search-openai.ts`](lib/gameplay-search-openai.ts) contains the OpenAI Responses and Audio Transcriptions API calls, strict schemas, provenance capture, and response validation. |
+| Human review points | Users preview clips, confirm permissions, inspect ratings and model provenance, seek every cited timestamp, navigate Director beats, and choose what enters a downloadable reel. |
 | Exception handling | [`app/api/analyze/*`](app/api/analyze) rejects invalid input, missing configuration, API failures, invalid structured output, and unsupported citations. Insufficient evidence produces abstention. |
-| Final output or action | The product creates a Director's Cut decision list, personalized What You Missed moments, a squad recap, and grounded answers with playable citations. |
+| Final output or action | The product creates playable search results, player/team coaching, a Director's Cut preview, grounded answers, and a downloadable social reel. |
 | Architecture overview | See [Product architecture](#product-architecture) and [`docs/AI_PIPELINE.md`](docs/AI_PIPELINE.md). |
 | Prompts and model configuration | Live prompts and JSON schemas are in [`lib/unseen-openai.ts`](lib/unseen-openai.ts); grounded fixture Q&A instructions are in [`lib/unseen-ai.ts`](lib/unseen-ai.ts); model defaults are in [`.env.example`](.env.example). No autonomous agent framework is used. |
 | Third-party disclosure | See [Third-party libraries, models, data, and APIs](#third-party-libraries-models-data-and-apis). |
@@ -419,12 +418,11 @@ in [`package-lock.json`](package-lock.json).
 
 | Component | Use | Data sent |
 | --- | --- | --- |
-| OpenAI Responses API | Structured vision observations, cross-POV linking, and grounded answers | Sampled JPEG frames, compact evidence, and optional transcript context |
+| OpenAI Responses API | Structured vision observations, gameplay search, post-game reviews, Director plans, coaching, and highlight planning | Sampled JPEG frames during indexing; compact index/review data for later reasoning; optional transcript context |
 | `gpt-5.6-sol` | Default live vision and linking model | Same as above |
 | OpenAI Audio Transcriptions API | Optional opted-in speech transcription | Consented mono WAV excerpt |
-| `gpt-4o-mini-transcribe` | Default transcription model | Consented mono WAV excerpt |
+| `whisper-1` | Default long-gameplay transcription model with segment timestamps | Consented, locally encoded Opus chunks under 25 MB |
 | `gpt-5.6` | Optional grounded language generation for the disclosed fixture | Consent-filtered evidence text |
-| YouTube privacy-enhanced embed | Plays the official-footage opener | Standard embedded-player requests; the repository does not store the broadcast file |
 
 ### Media and datasets
 

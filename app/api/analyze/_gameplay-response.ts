@@ -31,6 +31,11 @@ export function gameplayOpenAIConfig(apiKey: string) {
       process.env.OPENAI_SEARCH_MODEL?.trim() ||
       process.env.OPENAI_VISION_MODEL?.trim() ||
       "gpt-5.6-sol",
+    coachModel:
+      process.env.OPENAI_COACH_MODEL?.trim() ||
+      process.env.OPENAI_SEARCH_MODEL?.trim() ||
+      process.env.OPENAI_VISION_MODEL?.trim() ||
+      "gpt-5.6-sol",
     transcriptionModel:
       process.env.OPENAI_SEARCH_TRANSCRIPTION_MODEL?.trim() || "whisper-1",
   };
