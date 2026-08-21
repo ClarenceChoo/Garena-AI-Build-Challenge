@@ -122,12 +122,15 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /\/api\/analyze\/index-segment/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/search/);
   assert.match(gameplayWorkbench, /\/api\/analyze\/highlights/);
-  assert.doesNotMatch(gameplayWorkbench, /\/api\/analyze\/transcribe/);
+  assert.match(gameplayWorkbench, /\/api\/analyze\/transcribe/);
   assert.doesNotMatch(gameplayWorkbench, /voices_consented|voices_unconsented|Required audio declaration/);
-  assert.match(gameplayWorkbench, /Voice audio is never uploaded or transcribed/);
+  assert.match(gameplayWorkbench, /Analyze voice chat/);
+  assert.match(gameplayWorkbench, /createConsentedAudioChunk/);
+  assert.match(gameplayWorkbench, /form\.append\("voiceConsent", "true"\)/);
+  assert.match(gameplayWorkbench, /maximumAudioChunkBytes/);
   assert.match(gameplayWorkbench, /onIndexChange\?\.\(\{/);
   assert.match(gameplayWorkbench, /id=\{`gameplay-video-\$\{clip\.id\}`\}/);
-  assert.match(gameplayWorkbench, /renderGameplayReel\([\s\S]*?plan,[\s\S]*?false,/);
+  assert.match(gameplayWorkbench, /renderGameplayReel\([\s\S]*?plan,[\s\S]*?voiceAnalysisEnabled,/);
   assert.match(gameplayWorkbench, /insufficient_evidence/);
   assert.match(gameplayWorkbench, /MAXIMUM_INDEX_CONCURRENCY = 4/);
   assert.match(gameplayWorkbench, /navigator\.hardwareConcurrency/);
@@ -488,6 +491,55 @@ test("gameplay routes reject unknown evidence and unconsented voice transmission
     assert.equal(overDuration.status, 400);
     assert.match((await overDuration.json()).error.message, /60-minute/i);
     assert.equal(upstreamCalls, 1, "unconsented audio must be rejected before any upstream request");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("consented voice analysis returns absolute Whisper segment timestamps", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamForm;
+  globalThis.fetch = async (_url, init) => {
+    upstreamForm = init?.body;
+    return new Response(JSON.stringify({
+      text: "Go left now",
+      segments: [{ start: 1.2, end: 2.8, text: " Go left now " }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-request-id": "req_voice_transcript" },
+    });
+  };
+  try {
+    const audio = new FormData();
+    audio.append("file", new Blob(["consented voice"], { type: "audio/webm" }), "voice.webm");
+    audio.append("clipId", "clip-voice");
+    audio.append("chunkStartMs", "10000");
+    audio.append("voiceConsent", "true");
+    const response = await dispatch("/api/analyze/transcribe", {
+      method: "POST",
+      headers: AUTH_HEADERS,
+      body: audio,
+    });
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.api.real, true);
+    assert.equal(payload.api.requestId, "req_voice_transcript");
+    assert.equal(payload.api.model, "whisper-1");
+    assert.deepEqual(payload.segments, [{
+      id: "clip-voice-transcript-10000-1",
+      clipId: "clip-voice",
+      startMs: 11200,
+      endMs: 12800,
+      text: "Go left now",
+    }]);
+    assert.ok(upstreamForm instanceof FormData);
+    assert.equal(upstreamForm.get("model"), "whisper-1");
+    assert.equal(upstreamForm.get("response_format"), "verbose_json");
+    assert.equal(upstreamForm.get("timestamp_granularities[]"), "segment");
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
