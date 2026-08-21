@@ -148,7 +148,7 @@ flowchart LR
 | Recordings | 1–4 local files |
 | Session limit | 60 minutes / 2 GiB combined |
 | Segment evidence | At most 24 selected images per two-minute segment |
-| Parallelism | Up to four segment requests, device permitting |
+| Parallelism | Up to eight AI segment requests · at most two local media decoders |
 | Search results | Up to five ranked, playable matches |
 | Reel outputs | 30/60/90 seconds; landscape or vertical |
 

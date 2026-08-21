@@ -1,7 +1,7 @@
 .post-game-review {
   position: relative;
-  margin-top: 30px;
-  padding: clamp(22px, 3vw, 38px);
+  margin-top: 0;
+  padding: clamp(18px, 2.4vw, 30px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, .13);
   background:
@@ -14,7 +14,7 @@
 .post-game-review button, .post-game-review input { font: inherit; }
 .post-review-label { color: #ff6976; font: 800 9px/1 var(--font-geist-mono); letter-spacing: .12em; text-transform: uppercase; }
 .post-game-review-hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 36px; align-items: end; }
-.post-game-review-hero h2 { max-width: 860px; margin: 10px 0; font-size: clamp(34px, 4.8vw, 62px); line-height: .98; letter-spacing: -.055em; }
+.post-game-review-hero h2 { max-width: 860px; margin: 8px 0; font-size: clamp(30px, 4vw, 50px); line-height: 1; letter-spacing: -.05em; }
 .post-game-review-hero p { max-width: 800px; margin: 0; color: #969ba6; font-size: 13px; line-height: 1.6; }
 .post-review-coverage { display: grid; grid-template-columns: auto 1fr; gap: 5px 11px; min-width: 210px; padding: 18px; border: 1px solid rgba(53, 228, 255, .22); background: rgba(53, 228, 255, .035); }
 .post-review-coverage strong { color: #35e4ff; font: 700 22px/1 var(--font-geist-mono); }
@@ -27,14 +27,15 @@
 .post-review-relationship span { color: #737a86; text-align: right; }
 .post-review-relationship.relationship-mixed_sources, .post-review-relationship.relationship-uncertain { border-color: rgba(255, 158, 56, .2); background: rgba(255, 158, 56, .035); }
 
-.post-review-tabs { display: flex; gap: 6px; margin-top: 28px; overflow-x: auto; border-bottom: 1px solid rgba(255, 255, 255, .1); }
-.post-review-tabs button { flex: 0 0 auto; padding: 12px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #777d88; cursor: pointer; font: 800 10px/1 var(--font-geist-mono); }
+.post-review-tabs { display: flex; gap: 6px; margin-top: 20px; overflow-x: auto; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.post-review-tabs button { flex: 0 0 auto; min-height: 44px; padding: 12px 16px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #777d88; cursor: pointer; font: 800 10px/1 var(--font-geist-mono); }
 .post-review-tabs button:hover { color: #d9dde2; }
 .post-review-tabs button.active { border-bottom-color: #ed1c2e; color: #fff; background: rgba(237, 28, 46, .06); }
-.post-review-content { padding-top: 24px; }
+.post-review-tabs button:focus-visible { position: relative; z-index: 1; outline: 2px solid #35e4ff; outline-offset: -2px; }
+.post-review-content { padding-top: 18px; }
 .post-review-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, .38fr); gap: 20px; align-items: stretch; }
 .post-review-summary > div { padding: 22px; border: 1px solid rgba(255, 255, 255, .1); background: #0d1015; }
-.post-review-summary h3 { margin: 10px 0 0; font-size: clamp(20px, 2.5vw, 30px); line-height: 1.25; letter-spacing: -.025em; }
+.post-review-summary h3 { margin: 0; font-size: clamp(18px, 2.2vw, 26px); line-height: 1.3; letter-spacing: -.025em; }
 .post-review-summary aside { display: grid; align-content: center; gap: 9px; padding: 22px; border: 1px solid rgba(237, 28, 46, .25); background: rgba(237, 28, 46, .06); }
 .post-review-summary aside span { color: #ff6976; font: 800 8px/1 var(--font-geist-mono); letter-spacing: .12em; }
 .post-review-summary aside strong { color: #fff; font-size: 18px; line-height: 1.25; }
@@ -52,7 +53,7 @@
 .post-review-rating .post-review-evidence button { width: 100%; }
 .post-review-rating.not-observed { opacity: .68; }
 
-.post-review-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; }
+.post-review-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px; }
 .post-review-columns > section > h3 { margin: 8px 0 13px; font-size: 19px; }
 .post-review-coaching-card { position: relative; padding: 18px 18px 18px 50px; border: 1px solid rgba(255, 255, 255, .09); background: #0d1015; }
 .post-review-coaching-card + .post-review-coaching-card { margin-top: 8px; }
@@ -69,7 +70,7 @@
 .post-review-evidence button:hover, .ask-coach-citations button:hover { border-color: rgba(53, 228, 255, .55); color: #fff; }
 .post-review-evidence button span, .ask-coach-citations button span { margin-right: 6px; color: #35e4ff; font-family: var(--font-geist-mono); }
 
-.post-review-practice { margin-top: 30px; padding: 22px; border: 1px solid rgba(53, 228, 255, .18); background: rgba(53, 228, 255, .025); }
+.post-review-practice { margin-top: 22px; padding: 20px; border: 1px solid rgba(53, 228, 255, .18); background: rgba(53, 228, 255, .025); }
 .post-review-practice header h3 { margin: 8px 0 0; font-size: 23px; }
 .post-review-practice > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 17px; }
 .post-review-practice article { position: relative; padding: 17px; border: 1px solid rgba(255, 255, 255, .09); background: #0b0e13; }
@@ -78,7 +79,7 @@
 .post-review-practice p { margin: 0; color: #959ba6; font-size: 10px; line-height: 1.5; }
 .post-review-practice article > small { display: block; margin-top: 12px; color: #35e4ff; font: 700 7px/1.4 var(--font-geist-mono); }
 
-.director-preview { margin-top: 34px; padding: 22px; border: 1px solid rgba(255, 158, 56, .27); background: linear-gradient(135deg, rgba(255, 158, 56, .05), transparent 38%), #090b0f; }
+.director-preview { margin-top: 22px; padding: 20px; border: 1px solid rgba(255, 158, 56, .27); background: linear-gradient(135deg, rgba(255, 158, 56, .05), transparent 38%), #090b0f; }
 .director-preview > header { display: flex; align-items: end; justify-content: space-between; gap: 24px; }
 .director-preview h3 { margin: 8px 0 5px; font-size: clamp(25px, 3.5vw, 40px); letter-spacing: -.04em; }
 .director-preview header p { margin: 0; color: #9096a1; font-size: 11px; }
@@ -106,7 +107,7 @@
 .director-timeline button p { margin: 2px 0 0; color: #9298a3; font-size: 9px; line-height: 1.4; }
 .director-preview > footer { margin-top: 12px; color: #5f6671; font: 700 7px/1.4 var(--font-geist-mono); text-align: right; text-transform: uppercase; }
 
-.ask-coach { margin-top: 34px; padding: 22px; border: 1px solid rgba(237, 28, 46, .24); background: rgba(237, 28, 46, .025); }
+.ask-coach { margin-top: 22px; padding: 20px; border: 1px solid rgba(237, 28, 46, .24); background: rgba(237, 28, 46, .025); }
 .ask-coach > header { display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .ask-coach h3 { margin: 8px 0 5px; font-size: 30px; }
 .ask-coach header p { margin: 0; color: #8d939e; font-size: 11px; }
