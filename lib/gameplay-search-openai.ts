@@ -45,6 +45,11 @@ export interface GameplaySearchOpenAIConfig {
   signal?: AbortSignal;
 }
 
+export type GameplaySearchStructuredOutputFailure =
+  | "none"
+  | "max_output_tokens"
+  | "malformed_json";
+
 export class GameplaySearchOpenAIError extends Error {
   constructor(
     message: string,
@@ -52,6 +57,7 @@ export class GameplaySearchOpenAIError extends Error {
     public readonly status = 502,
     public readonly requestId = "",
     public readonly retryAfterMs = 0,
+    public readonly structuredOutputFailure: GameplaySearchStructuredOutputFailure = "none",
   ) {
     super(message);
     this.name = "GameplaySearchOpenAIError";
@@ -61,6 +67,8 @@ export class GameplaySearchOpenAIError extends Error {
 interface ResponsesApiResult {
   id?: unknown;
   model?: unknown;
+  status?: unknown;
+  incomplete_details?: { reason?: unknown } | null;
   output_text?: unknown;
   output?: unknown;
   usage?: { input_tokens?: unknown; output_tokens?: unknown };
@@ -538,6 +546,30 @@ async function requestStructured<T>(
       retryAfterMilliseconds(response),
     );
   }
+  if (body?.status === "failed") {
+    throw new GameplaySearchOpenAIError(
+      safeMessage(body, "OpenAI could not complete the structured gameplay request."),
+      "OPENAI_ERROR",
+      502,
+      requestId,
+    );
+  }
+  if (body?.status === "incomplete") {
+    const incompleteReason = typeof body.incomplete_details?.reason === "string"
+      ? body.incomplete_details.reason
+      : "";
+    const exhaustedOutputLimit = incompleteReason === "max_output_tokens";
+    throw new GameplaySearchOpenAIError(
+      exhaustedOutputLimit
+        ? "OpenAI could not finish the structured gameplay result within its output limit. Retry this request."
+        : "OpenAI returned an incomplete structured gameplay result. Retry this request.",
+      "OPENAI_INVALID_OUTPUT",
+      502,
+      requestId,
+      0,
+      exhaustedOutputLimit ? "max_output_tokens" : "none",
+    );
+  }
   const outputText = body ? extractResponseText(body) : null;
   if (!outputText) {
     throw new GameplaySearchOpenAIError(
@@ -552,10 +584,12 @@ async function requestStructured<T>(
     payload = JSON.parse(outputText) as T;
   } catch {
     throw new GameplaySearchOpenAIError(
-      "OpenAI returned malformed structured gameplay data.",
+      "OpenAI returned an invalid structured gameplay result. Retry this request.",
       "OPENAI_INVALID_OUTPUT",
       502,
       requestId,
+      0,
+      "malformed_json",
     );
   }
   return {
@@ -1411,28 +1445,62 @@ export async function reviewGameplay(
   if (events.length === 0 || request.clips.some((clip) => !clipsWithEvents.has(clip.id))) {
     return deterministicInsufficientReview(request);
   }
-  const response = await requestStructured<unknown>(
-    { ...config, searchModel: config.coachModel ?? config.searchModel },
+  const reviewInstructions = [
+    "Create an evidence-grounded post-game coaching review from a compact gameplay event index.",
+    "Return exactly one player review per supplied clip. Give three concrete next-session actions. Rate awareness, positioning, timing, decision_making, teamwork, and communication exactly once on a 1-5 scale only when cited events support the rating; otherwise use not_observed with level null and no event IDs.",
+    "Every observed rating, strength, improvement, and practice action must cite supplied event IDs. Player reviews may cite only events from that player's clip. Communication may be observed only when the cited event has transcriptSegmentIds.",
+    "When voiceAnalysisEnabled is false, communication must be not_observed even if stale transcript IDs appear in the supplied index.",
+    "Do not mention spoken callouts, dialogue, voice tone, laughter, or audible reactions in any summary, recommendation, rationale, or Director caption unless voiceAnalysisEnabled is true and the claim cites an event with transcriptSegmentIds.",
+    "Use likely_same_session only when matching evidence across at least two source clips supports it. Return teamReview only for likely_same_session. Do not claim synchronization, causality, hidden actions, identity, or performance statistics that are absent from the index.",
+    "The optional Director preview must contain 2-8 distinct supplied event IDs, use each event's real clip ID, and keep each cut within three seconds before and five seconds after the supplied event. It is a preview plan, not a rendered export.",
+    "If the evidence cannot support useful coaching, return insufficient_evidence with empty playerReviews and null teamReview and directorPreview.",
+    "Keep every prose field concise so the complete structured review fits in one response.",
+  ].join("\n");
+  const reviewInput = JSON.stringify({
+    clips: request.clips,
+    indexCompleteness: request.indexCompleteness,
+    voiceAnalysisEnabled: request.voiceAnalysisEnabled,
+    events,
+  });
+  const reviewConfig = { ...config, searchModel: config.coachModel ?? config.searchModel };
+  const requestReview = (maximumOutputTokens: number) => requestStructured<unknown>(
+    reviewConfig,
     "unseen_gameplay_post_review",
     GAMEPLAY_REVIEW_SCHEMA,
-    [
-      "Create an evidence-grounded post-game coaching review from a compact gameplay event index.",
-      "Return exactly one player review per supplied clip. Give three concrete next-session actions. Rate awareness, positioning, timing, decision_making, teamwork, and communication exactly once on a 1-5 scale only when cited events support the rating; otherwise use not_observed with level null and no event IDs.",
-      "Every observed rating, strength, improvement, and practice action must cite supplied event IDs. Player reviews may cite only events from that player's clip. Communication may be observed only when the cited event has transcriptSegmentIds.",
-      "When voiceAnalysisEnabled is false, communication must be not_observed even if stale transcript IDs appear in the supplied index.",
-      "Do not mention spoken callouts, dialogue, voice tone, laughter, or audible reactions in any summary, recommendation, rationale, or Director caption unless voiceAnalysisEnabled is true and the claim cites an event with transcriptSegmentIds.",
-      "Use likely_same_session only when matching evidence across at least two source clips supports it. Return teamReview only for likely_same_session. Do not claim synchronization, causality, hidden actions, identity, or performance statistics that are absent from the index.",
-      "The optional Director preview must contain 2-8 distinct supplied event IDs, use each event's real clip ID, and keep each cut within three seconds before and five seconds after the supplied event. It is a preview plan, not a rendered export.",
-      "If the evidence cannot support useful coaching, return insufficient_evidence with empty playerReviews and null teamReview and directorPreview.",
-    ].join("\n"),
-    JSON.stringify({
-      clips: request.clips,
-      indexCompleteness: request.indexCompleteness,
-      voiceAnalysisEnabled: request.voiceAnalysisEnabled,
-      events,
-    }),
-    8_000,
+    reviewInstructions,
+    reviewInput,
+    maximumOutputTokens,
+    { verbosity: "low" },
   );
+  let response: ResponseEnvelope<unknown>;
+  try {
+    response = await requestReview(8_000);
+  } catch (error) {
+    const retryableOutputFailure = error instanceof GameplaySearchOpenAIError && (
+      error.structuredOutputFailure === "max_output_tokens" ||
+      error.structuredOutputFailure === "malformed_json"
+    );
+    if (!retryableOutputFailure || config.signal?.aborted) throw error;
+    try {
+      response = await requestReview(16_000);
+    } catch (retryError) {
+      if (
+        retryError instanceof GameplaySearchOpenAIError &&
+        !retryError.requestId &&
+        error.requestId
+      ) {
+        throw new GameplaySearchOpenAIError(
+          retryError.message,
+          retryError.code,
+          retryError.status,
+          error.requestId,
+          retryError.retryAfterMs,
+          retryError.structuredOutputFailure,
+        );
+      }
+      throw retryError;
+    }
+  }
   return compileGameplayPostReview(response.payload, request, response);
 }
 
