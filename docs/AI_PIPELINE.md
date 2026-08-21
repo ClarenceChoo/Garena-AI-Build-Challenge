@@ -13,10 +13,13 @@ The default long-footage path is implemented in three bounded layers:
   renders validated highlight plans without loading the entire source into memory.
 - `lib/gameplay-search-openai.ts` indexes a game-agnostic event ontology,
   searches the compact index, transcribes only consented voice, and proposes
-  diverse reel beats through strict Structured Outputs with `store: false`.
+  evidence-grounded post-game reviews, Director-preview beats, scoped coaching
+  answers, and diverse reel beats through strict Structured Outputs with
+  `store: false`.
 - Authenticated `/api/analyze/index-segment`, `/search`, `/highlights`, and
-  `/transcribe` routes reject unknown IDs, missing credentials, invalid consent,
-  and upstream failures rather than substituting fixture output.
+  `/transcribe`, `/review`, and `/coach` routes reject unknown IDs, missing
+  credentials, invalid consent, and upstream failures rather than substituting
+  fixture output.
 
 Every `GameplayEvent` preserves its source clip/segment, clamped time range,
 readable actors, OCR, confidence, and frame/transcript evidence IDs. Search can
@@ -24,6 +27,43 @@ only return those event IDs. The deterministic highlight compiler can only use
 known clips/events, clamps ranges to media duration, limits each beat to 12
 seconds, removes substantial overlaps, and enforces the target duration. The
 browser renderer never executes a model-generated media command.
+
+## Post-game review and coaching
+
+The client starts `/api/analyze/review` once after the current index becomes
+usable. Review generation runs independently of Gameplay Search, so a slow or
+failed coaching request cannot invalidate moment retrieval. A completed review
+contains exactly one player review per supplied source and an optional team
+review only when the index supports a shared-session relationship. A partial
+index is labeled as partial; retrying failed segments invalidates and replaces
+the earlier review.
+
+The review model receives clip metadata, the compact gameplay-event index, the
+index completeness state, and whether consented voice was indexed. It does not
+receive raw media, image data URLs, audio bytes, or local blob URLs. Application
+validation enforces these evidence boundaries:
+
+- every strength, improvement, observed rating, and Director beat references a
+  known indexed event;
+- player reviews map one-to-one to supplied clip IDs;
+- unsupported rating categories use `not_observed` instead of an inferred
+  score, and communication requires transcript-linked evidence;
+- Director beats reference known clips/events, are clamped to source duration
+  and a bounded event window, and are de-duplicated before playback; and
+- uncertain or unrelated multi-clip sessions omit the team review rather than
+  inventing cross-perspective causality.
+
+The Director's Cut is an ordered local playback plan, not an encoded artifact.
+The browser seeks each source `File` with a short context handle, stops at the
+validated boundary, and switches to the next beat. Downloadable media remains
+the responsibility of the separately validated social-reel renderer.
+
+`/api/analyze/coach` receives the current validated review, compact event index,
+selected player/team scope, question, and at most six sanitized recent chat
+messages. A successful response contains one next action and one to four known-
+event citations. Unsupported questions return `insufficient_evidence`; a
+substantive answer without a validated citation is rejected. Clicking a
+citation seeks the browser-local recording two seconds before the cited event.
 
 `lib/unseen-ai.ts` exports edge-compatible primitives for:
 
@@ -99,6 +139,12 @@ The request uses the Responses API `text.format` JSON-schema form with `strict: 
 
 The default model is `gpt-5.6`, following current OpenAI guidance for new projects and Structured Outputs. See the official [Structured Outputs guide](https://developers.openai.com/api/docs/guides/structured-outputs) and [Responses API reference](https://developers.openai.com/api/reference/resources/responses/methods/create).
 
+Long-gameplay indexing and search use `OPENAI_SEARCH_MODEL` when configured.
+Review and Ask Coach use `OPENAI_COACH_MODEL`, falling back to the search model
+and then the existing vision default. All gameplay Responses API calls remain
+server-only, set `store: false`, and return request/response provenance for
+inspection.
+
 ## Real uploads, official footage, and the interaction simulator
 
 The browser upload path accepts two to four real clips up to three minutes each,
@@ -135,6 +181,12 @@ Those workers should emit `AlignmentTrackInput`, `MomentCandidate`, and `Evidenc
 - Derived titles and summaries do not have field-level provenance in the prototype, so the pipeline fails closed: if any evidence supporting a moment is blocked or consent-withdrawn, that whole moment is omitted rather than exposing a possibly derived detail. Revoked actor perspectives and their alignment tracks are also removed.
 - The model sees compact evidence text, not raw recordings. In production, minimise text further and use short-lived storage references.
 - Grounded Q&A cites session evidence and abstains when the evidence is missing, weak, contradictory, blocked, or consent-revoked.
+- Post-game ratings describe only indexed observations. The review does not
+  invent KDA, accuracy, mechanics, intent, or an overall competitive score, and
+  communication stays `not_observed` without consented transcript evidence.
+- Review and coaching calls operate on the compact, validated index. No raw
+  recording, sampled JPEG data URL, audio chunk, or browser-local blob URL is
+  included in either request.
 - When any session evidence is consent-restricted, the demo adapter suppresses unverified related-moment links and suggested follow-ups. If the remaining evidence cannot answer, it returns a consent-safe abstention rather than delegating to a richer fallback that may predate revocation.
 - Prompts prohibit inferring intent, identity, or internal emotion. Deterministic fallbacks use only evidence text.
 - No voiceprint, facial identity profile, synthetic speech, or fabricated footage is produced.
@@ -169,5 +221,10 @@ Rendering should be retryable independently of AI analysis. The saved edit plan 
 - Grounded answers explain supported sequences, not hidden player intent or definitive causality.
 - Long-footage sessions support 1–4 files, 60 minutes, and 2 GB combined. Game
   and mode detection are best-effort; unreadable identities remain unknown.
+- Player coaching is keyed to the user-editable source label. Team coaching and
+  multi-source Director claims appear only when the index supports a reliable
+  shared-session relationship.
+- Post-game reviews, coaching history, the Director plan, and all media object
+  URLs remain temporary page-memory state and clear on reload.
 - Current Chrome and Edge are the supported reel-export browsers. The renderer
   prefers H.264/AAC MP4 after codec checks and falls back to VP9/Opus WebM.

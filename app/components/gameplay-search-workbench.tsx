@@ -26,6 +26,7 @@ import type {
   TranscribeGameplayAudioResponse,
 } from "@/lib/gameplay-search-types";
 import { GAMEPLAY_SEARCH_LIMITS } from "@/lib/gameplay-search-types";
+import { GameplayPostGameReview } from "./gameplay-post-review";
 import "./gameplay-search-workbench.css";
 
 type IndexStatus = "pending" | "running" | "complete" | "failed";
@@ -256,6 +257,20 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     durationMs,
     sizeBytes,
   })), [clips]);
+  const reviewSources = useMemo(() => clips.map(({ id, name, label, durationMs, sizeBytes, url }) => ({
+    id,
+    name,
+    label,
+    durationMs,
+    sizeBytes,
+    url,
+  })), [clips]);
+  const reviewRevision = useMemo(() => [
+    state === "partial" ? "partial" : "complete",
+    voiceAnalysisEnabled ? "voice" : "silent",
+    clips.map((clip) => `${clip.id}:${clip.label}`).join("|"),
+    segments.map((segment) => `${segment.segmentId}:${segment.api.responseId}:${segment.events.length}`).join("|"),
+  ].join("::"), [clips, segments, state, voiceAnalysisEnabled]);
   useEffect(() => {
     onIndexChange?.({
       clips: metadata,
@@ -343,6 +358,10 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
     resetDerivedState();
     setState("idle");
     setMessage("Source removed. Re-index to search the updated session.");
+  }
+
+  function updateClipLabel(id: string, label: string) {
+    setClips((current) => current.map((clip) => clip.id === id ? { ...clip, label } : clip));
   }
 
   function updateJob(id: string, patch: Partial<SegmentJob>) {
@@ -479,7 +498,9 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
             completed.set(job.id, indexed);
             failed.delete(job.id);
             updateJob(job.id, { status: "complete", attempts: job.attempts + attempt, message: `${indexed.events.length} events` });
-            setSegments([...completed.values()].sort((a, b) => a.segmentStartMs - b.segmentStartMs));
+            const nextSegments = [...completed.values()].sort((a, b) => a.segmentStartMs - b.segmentStartMs);
+            segmentsRef.current = nextSegments;
+            setSegments(nextSegments);
             break;
           } catch (error) {
             if (controller.signal.aborted) throw error;
@@ -502,7 +523,10 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       }
     };
     await Promise.all(Array.from({ length: workerCount }, () => worker()));
-    return failed.size;
+    return {
+      failedCount: failed.size,
+      completedSegments: [...completed.values()].sort((a, b) => a.segmentStartMs - b.segmentStartMs),
+    };
   }
 
   async function startIndexing(retryFailed = false) {
@@ -528,9 +552,11 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
       } else {
         setJobs((current) => current.map((job) => job.status === "failed" ? { ...job, status: "pending", message: "Queued for retry" } : job));
       }
-      const remainingFailed = await processJobs(work, transcriptMap, controller);
-      setState(remainingFailed > 0 ? "partial" : "ready");
-      setMessage("Indexing finished. Search the verified event timeline or generate a reel.");
+      const result = await processJobs(work, transcriptMap, controller);
+      segmentsRef.current = result.completedSegments;
+      setSegments(result.completedSegments);
+      setState(result.failedCount > 0 ? "partial" : "ready");
+      setMessage("Indexing finished. AI coaching is generating while the verified timeline stays searchable.");
     } catch (error) {
       if (controller.signal.aborted) {
         setState(segmentsRef.current.length ? "partial" : "idle");
@@ -667,7 +693,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
 
       <div className="gameplay-flow" aria-label="Gameplay search stages">
         <span>01 ADD FOOTAGE</span><i>→</i><span>02 LOCAL SCAN</span><i>→</i>
-        <span>03 EVIDENCE INDEX</span><i>→</i><span>04 NATURAL SEARCH</span><i>→</i><span>05 EXPORT</span>
+        <span>03 EVIDENCE INDEX</span><i>→</i><span>04 COACH + SEARCH</span><i>→</i><span>05 DIRECT + EXPORT</span>
       </div>
 
       <div className="gameplay-source-grid">
@@ -690,7 +716,7 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
             </div>
             <label>
               Source label
-              <input value={clip.label} onChange={(event) => setClips((current) => current.map((candidate) => candidate.id === clip.id ? { ...candidate, label: event.target.value } : candidate))} />
+              <input value={clip.label} disabled={state === "indexing"} onChange={(event) => updateClipLabel(clip.id, event.target.value)} />
             </label>
             <p title={clip.name}>{clip.name}</p>
             <small>{formatTime(clip.durationMs)} · {readableBytes(clip.file.size)} · LOCAL BLOB</small>
@@ -733,12 +759,25 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           <strong>Analyze voice chat</strong>
           <small>
             Enable only when everyone audible has agreed. Audio is chunked locally, transcribed with
-            timestamps using {backend?.models.searchTranscription ?? "whisper-1"}, and kept only in this tab.
+            timestamps using {backend?.models?.searchTranscription ?? "whisper-1"}, and kept only in this tab.
           </small>
         </span>
       </label>
       <label className="gameplay-permission">
-        <input type="checkbox" checked={permissionConfirmed} onChange={(event) => setPermissionConfirmed(event.target.checked)} />
+        <input
+          type="checkbox"
+          checked={permissionConfirmed}
+          disabled={state === "indexing"}
+          onChange={(event) => {
+            const confirmed = event.target.checked;
+            setPermissionConfirmed(confirmed);
+            if (!confirmed && segmentsRef.current.length) {
+              resetDerivedState();
+              setState("idle");
+              setMessage("Recording permission changed. Confirm permission and re-index to continue.");
+            }
+          }}
+        />
         <span><strong>I have permission to analyze these recordings.</strong> Selected JPEG evidence may be sent to OpenAI. UNSEEN stores no raw video or persistent index.</span>
       </label>
 
@@ -770,6 +809,17 @@ export function GameplaySearchWorkbench({ onIndexChange }: GameplaySearchWorkben
           <div><span>EVENT ONTOLOGY</span><strong>{eventCount} grounded moments</strong><small>Eliminations · assists · objectives · clutches · mistakes · reactions{transcriptCount ? ` · ${transcriptCount} voice segments` : ""}</small></div>
           <div><span>INDEX LIFETIME</span><strong>This tab only</strong><small>Reload to clear all frames, transcripts, and events from memory.</small></div>
         </div>
+      )}
+
+      {(state === "ready" || state === "partial") && segments.length > 0 && (
+        <GameplayPostGameReview
+          key={reviewRevision}
+          clips={reviewSources}
+          segments={segments}
+          indexCompleteness={state === "partial" ? "partial" : "complete"}
+          voiceAnalysisEnabled={voiceAnalysisEnabled}
+          onPlayMoment={playMoment}
+        />
       )}
 
       {segments.length > 0 && (

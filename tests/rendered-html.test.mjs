@@ -34,6 +34,157 @@ async function dispatch(path, init = {}) {
   );
 }
 
+function coachingFixture() {
+  const clips = [
+    { id: "coach-a", name: "ace.mp4", label: "Ace", durationMs: 120_000, sizeBytes: 12_000_000 },
+    { id: "coach-b", name: "rin.mp4", label: "Rin", durationMs: 120_000, sizeBytes: 12_000_000 },
+  ];
+  const segment = (clipId, event, transcriptSegmentIds = []) => ({
+    clipId,
+    segmentId: `${clipId}-segment-001`,
+    segmentStartMs: 0,
+    segmentEndMs: 120_000,
+    gameTitle: "Free Fire",
+    gameMode: "Clash Squad",
+    contextSummary: `${clips.find((clip) => clip.id === clipId).label} perspective.`,
+    evidenceFrameIds: [...event.evidenceFrameIds, `${clipId}-segment-001-frame-context`],
+    transcriptSegmentIds,
+    events: [event],
+    api: {
+      real: true,
+      responseId: `resp-index-${clipId}`,
+      requestId: `req-index-${clipId}`,
+      model: "gpt-5.6-sol",
+      inputTokens: 100,
+      outputTokens: 40,
+    },
+  });
+  const aceEvent = {
+    id: "coach-a-segment-001-event-clutch",
+    clipId: "coach-a",
+    segmentId: "coach-a-segment-001",
+    startMs: 44_000,
+    endMs: 47_000,
+    type: "clutch",
+    title: "Ace commits to the final duel",
+    description: "Ace wins the duel after a teammate calls the remaining angle.",
+    actors: ["Ace"],
+    target: "Opponent",
+    ocrText: "ACE eliminated OPPONENT",
+    importance: 94,
+    confidence: 0.95,
+    evidenceFrameIds: ["coach-a-frame-44000"],
+    transcriptSegmentIds: ["coach-a-transcript-43000-1"],
+  };
+  const rinEvent = {
+    id: "coach-b-segment-001-event-rotation",
+    clipId: "coach-b",
+    segmentId: "coach-b-segment-001",
+    startMs: 42_000,
+    endMs: 45_000,
+    type: "assist",
+    title: "Rin covers the squad rotation",
+    description: "Rin holds the rear angle while Ace advances.",
+    actors: ["Rin"],
+    target: null,
+    ocrText: "",
+    importance: 82,
+    confidence: 0.9,
+    evidenceFrameIds: ["coach-b-frame-42000"],
+    transcriptSegmentIds: [],
+  };
+  const segments = [
+    segment("coach-a", aceEvent, ["coach-a-transcript-43000-1"]),
+    segment("coach-b", rinEvent),
+  ];
+  return { clips, segments, aceEvent, rinEvent };
+}
+
+const COACHING_DIMENSIONS = [
+  "awareness",
+  "positioning",
+  "timing",
+  "decision_making",
+  "teamwork",
+  "communication",
+];
+
+function reviewBody(eventId, { communicationObserved = false } = {}) {
+  return {
+    summary: "The perspective shows one clear decision pattern worth repeating and refining.",
+    primaryPriority: "Confirm available information before committing.",
+    ratings: COACHING_DIMENSIONS.map((dimension) => {
+      const observed = dimension === "awareness" || (dimension === "communication" && communicationObserved);
+      return {
+        dimension,
+        status: observed ? "observed" : "not_observed",
+        level: observed ? 4 : null,
+        confidence: observed ? 0.9 : 0,
+        rationale: observed ? "The cited event directly supports this rating." : "This category was not reliably visible.",
+        eventIds: observed ? [eventId] : [],
+      };
+    }),
+    strengths: [{ title: "Useful awareness", summary: "The player reacts to visible information.", eventIds: [eventId] }],
+    improvements: [{
+      title: "Commit with a confirmation cue",
+      whatHappened: "The player committed as the fight developed.",
+      whyItMattered: "The timing narrowed the available options.",
+      betterDecision: "Confirm the safe angle before the final commitment.",
+      eventIds: [eventId],
+    }],
+    nextSessionPlan: [1, 2, 3].map((number) => ({
+      title: `Review habit ${number}`,
+      action: `Practice one evidence-backed decision cue ${number}.`,
+      successMeasure: `Use the cue in three relevant rounds ${number}.`,
+      eventIds: [eventId],
+    })),
+  };
+}
+
+function validRawReview({ invalidClipId = "", invalidEventId = "", communicationWithoutTranscript = false } = {}) {
+  const aceEventId = invalidEventId || "coach-a-segment-001-event-clutch";
+  return {
+    answerType: "review",
+    title: "Clarity before commitment",
+    summary: "The squad converted good awareness but can tighten the timing of its final decisions.",
+    sessionRelationship: {
+      status: "likely_same_session",
+      confidence: 0.91,
+      summary: "Matching round context and complementary actions connect both perspectives.",
+      eventIds: ["coach-a-segment-001-event-clutch", "coach-b-segment-001-event-rotation"],
+    },
+    playerReviews: [
+      { clipId: invalidClipId || "coach-a", ...reviewBody(aceEventId, { communicationObserved: true }) },
+      { clipId: "coach-b", ...reviewBody("coach-b-segment-001-event-rotation", { communicationObserved: communicationWithoutTranscript }) },
+    ],
+    teamReview: reviewBody("coach-a-segment-001-event-clutch", { communicationObserved: true }),
+    directorPreview: {
+      title: "The final turn",
+      subtitle: "The cover, call, and conversion from both perspectives.",
+      beats: [
+        {
+          eventId: "coach-b-segment-001-event-rotation",
+          clipId: "coach-b",
+          startMs: -10_000,
+          endMs: 999_000,
+          narrativeRole: "setup",
+          caption: "Rin covers the rotation",
+          reason: "Establish the protection behind the push.",
+        },
+        {
+          eventId: "coach-a-segment-001-event-clutch",
+          clipId: "coach-a",
+          startMs: -10_000,
+          endMs: 999_000,
+          narrativeRole: "resolution",
+          caption: "Ace closes the duel",
+          reason: "Show the observable payoff.",
+        },
+      ],
+    },
+  };
+}
+
 async function mp4DurationSeconds(fileUrl) {
   const buffer = await readFile(fileUrl);
   const marker = buffer.indexOf(Buffer.from("mvhd"));
@@ -137,10 +288,48 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(gameplayWorkbench, /Array\.from\(\{ length: workerCount \}/);
   assert.match(gameplayWorkbench, /retry-after/);
   assert.doesNotMatch(gameplayWorkbench, /Promise\.all\(\[worker\(\), worker\(\)\]\)/);
+  assert.match(gameplayWorkbench, /GameplayPostGameReview/);
+  assert.match(gameplayWorkbench, /indexCompleteness=/);
+  assert.match(gameplayWorkbench, /onPlayMoment=/);
+  assert.match(gameplayWorkbench, /key=\{reviewRevision\}/);
+  assert.match(gameplayWorkbench, /\(startMs - 2_000\)/);
+  const postGameReview = await readFile(
+    new URL("app/components/gameplay-post-review.tsx", projectRoot),
+    "utf8",
+  );
+  assert.match(postGameReview, /AI POST-GAME COACH/);
+  assert.match(postGameReview, /Building your evidence-backed review/);
+  assert.match(postGameReview, /\/api\/analyze\/review/);
+  assert.match(postGameReview, /\/api\/analyze\/coach/);
+  assert.match(postGameReview, /result\.api\?\.real/);
+  assert.match(postGameReview, /window\.setTimeout/);
+  assert.match(postGameReview, /window\.clearTimeout/);
+  assert.match(postGameReview, /controller\.abort\(\)/);
+  assert.match(postGameReview, /setCoachEntries\(\{\}\)/);
+  assert.match(postGameReview, /Partial evidence review/);
+  assert.match(postGameReview, /Retry review/);
+  assert.match(postGameReview, /Not observed/);
+  assert.match(postGameReview, /observed && <EvidenceLinks eventIds=\{rating\.eventIds\}/);
+  assert.match(postGameReview, />Squad<\/button>/);
+  assert.match(postGameReview, /Team review unavailable—these clips could not be reliably connected/);
+  assert.match(postGameReview, /DIRECTOR&apos;S CUT · LOCAL PREVIEW/);
+  assert.match(postGameReview, /activeBeat\.endMs/);
+  assert.match(postGameReview, /Previous beat/);
+  assert.match(postGameReview, /Next beat/);
+  assert.match(postGameReview, /temporary playable sequence, not an exported file/i);
+  assert.match(postGameReview, /prior\.slice\(-6\)/);
+  assert.match(postGameReview, /insufficient_evidence/);
+  assert.match(postGameReview, /GROUNDED IN THIS INDEX/);
+  assert.match(postGameReview, /INSUFFICIENT COACHING EVIDENCE/);
+  assert.match(postGameReview, /onPlayMoment\(citation\.clipId, citation\.startMs\)/);
+  assert.doesNotMatch(postGameReview, /imageDataUrl|audioBase64/);
   const gameplayLimits = await readFile(new URL("lib/gameplay-search-types.ts", projectRoot), "utf8");
   assert.match(gameplayLimits, /maximumClips: 4/);
   assert.match(gameplayLimits, /maximumTotalDurationMs: 60 \* 60_000/);
   assert.match(gameplayLimits, /maximumFramesPerSegment: 24/);
+  assert.match(gameplayLimits, /interface GameplayPostReview/);
+  assert.match(gameplayLimits, /interface GameplayCoachResponse/);
+  assert.match(gameplayLimits, /interface DirectorPreviewPlan/);
   const gameplayClient = await readFile(new URL("lib/gameplay-search-client.ts", projectRoot), "utf8");
   assert.match(gameplayClient, /new BlobSource\(file/);
   assert.match(gameplayClient, /new Mp4OutputFormat/);
@@ -252,6 +441,32 @@ test("live analysis fails closed when the server secret is absent", async () => 
     });
     assert.equal(searchResponse.status, 503);
     assert.equal((await searchResponse.json()).error.code, "AI_NOT_CONFIGURED");
+
+    const unauthorizedReview = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(unauthorizedReview.status, 401);
+    assert.equal((await unauthorizedReview.json()).error.code, "UNAUTHORIZED");
+
+    const reviewResponse = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(reviewResponse.status, 503);
+    assert.equal(reviewResponse.headers.get("cache-control"), "no-store");
+    assert.equal((await reviewResponse.json()).error.code, "AI_NOT_CONFIGURED");
+
+    const coachResponse = await dispatch("/api/analyze/coach", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(coachResponse.status, 503);
+    assert.equal(coachResponse.headers.get("cache-control"), "no-store");
+    assert.equal((await coachResponse.json()).error.code, "AI_NOT_CONFIGURED");
   } finally {
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
@@ -524,7 +739,7 @@ test("consented voice analysis returns absolute Whisper segment timestamps", { c
       headers: AUTH_HEADERS,
       body: audio,
     });
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.clone().text());
     const payload = await response.json();
     assert.equal(payload.api.real, true);
     assert.equal(payload.api.requestId, "req_voice_transcript");
@@ -540,6 +755,321 @@ test("consented voice analysis returns absolute Whisper segment timestamps", { c
     assert.equal(upstreamForm.get("model"), "whisper-1");
     assert.equal(upstreamForm.get("response_format"), "verbose_json");
     assert.equal(upstreamForm.get("timestamp_granularities[]"), "segment");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("post-game review grounds every claim, clamps Director beats, and abstains without events", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const previousCoachModel = process.env.OPENAI_COACH_MODEL;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  process.env.OPENAI_COACH_MODEL = "gpt-coach-test";
+  const fixture = coachingFixture();
+  let reviewMode = "valid";
+  let upstreamCalls = 0;
+  globalThis.fetch = async (_url, init) => {
+    upstreamCalls += 1;
+    const outbound = JSON.parse(init.body);
+    assert.equal(outbound.store, false);
+    assert.equal(outbound.model, "gpt-coach-test");
+    assert.equal(outbound.text.format.name, "unseen_gameplay_post_review");
+    assert.doesNotMatch(JSON.stringify(outbound), /data:image|blob:|audioBase64|video\/mp4/i);
+    let raw = validRawReview({
+      invalidClipId: reviewMode === "unknown-clip" ? "ghost-clip" : "",
+      invalidEventId: reviewMode === "unknown-event" ? "ghost-event" : "",
+      communicationWithoutTranscript: reviewMode === "communication-without-transcript",
+    });
+    if (reviewMode === "director-wrong-source") raw.directorPreview.beats[0].clipId = "coach-a";
+    if (reviewMode === "low-confidence-relationship") raw.sessionRelationship.confidence = 0.64;
+    if (reviewMode === "mixed-director" || reviewMode === "uncertain-director") {
+      raw.sessionRelationship.status = reviewMode === "mixed-director" ? "mixed_sources" : "uncertain";
+      raw.sessionRelationship.confidence = 0.9;
+      raw.teamReview = null;
+    }
+    if (reviewMode === "model-insufficient") {
+      raw = {
+        answerType: "insufficient_evidence",
+        title: "MODEL CLAIM: Ace dominated every opponent",
+        summary: "MODEL CLAIM: hidden statistics prove flawless mechanics",
+        sessionRelationship: {
+          status: "likely_same_session",
+          confidence: 0.99,
+          summary: "MODEL CLAIM: these sources are certainly synchronized",
+          eventIds: ["coach-a-segment-001-event-clutch", "coach-b-segment-001-event-rotation"],
+        },
+        playerReviews: [],
+        teamReview: null,
+        directorPreview: null,
+      };
+    }
+    return new Response(JSON.stringify({
+      id: `resp-review-${reviewMode}`,
+      model: "gpt-coach-test-2026-08-01",
+      output_text: JSON.stringify(raw),
+      usage: { input_tokens: 720, output_tokens: 330 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-request-id": `req-review-${reviewMode}` },
+    });
+  };
+
+  const requestBody = {
+    clips: fixture.clips,
+    segments: fixture.segments,
+    indexCompleteness: "complete",
+    voiceAnalysisEnabled: true,
+  };
+  try {
+    const response = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(response.headers.get("cache-control"), "no-store");
+    const review = await response.json();
+    assert.equal(review.answerType, "review");
+    assert.equal(review.coverage, "complete");
+    assert.equal(review.playerReviews.length, 2);
+    assert.equal(review.teamReview.ratings.length, 6);
+    assert.equal(review.voiceEvidenceAvailable, true);
+    assert.equal(review.api.real, true);
+    assert.equal(review.api.responseId, "resp-review-valid");
+    assert.equal(review.api.requestId, "req-review-valid");
+    assert.equal(review.api.model, "gpt-coach-test-2026-08-01");
+    const rinCommunication = review.playerReviews
+      .find((player) => player.clipId === "coach-b")
+      .ratings.find((rating) => rating.dimension === "communication");
+    assert.equal(rinCommunication.status, "not_observed");
+    assert.equal(rinCommunication.level, null);
+    assert.deepEqual(rinCommunication.eventIds, []);
+    assert.equal(review.directorPreview.sourceCount, 2);
+    assert.equal(review.directorPreview.beats.length, 2);
+    assert.deepEqual(
+      review.directorPreview.beats.map(({ clipId, startMs, endMs }) => ({ clipId, startMs, endMs })),
+      [
+        { clipId: "coach-b", startMs: 39_000, endMs: 50_000 },
+        { clipId: "coach-a", startMs: 41_000, endMs: 52_000 },
+      ],
+    );
+    assert.equal(review.directorPreview.durationMs, 22_000);
+
+    const emptySegments = fixture.segments.map((segment, index) => index === 1 ? { ...segment, events: [] } : segment);
+    const insufficientResponse = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ ...requestBody, segments: emptySegments }),
+    });
+    assert.equal(insufficientResponse.status, 200);
+    const insufficient = await insufficientResponse.json();
+    assert.equal(insufficient.answerType, "insufficient_evidence");
+    assert.equal(insufficient.coverage, "insufficient");
+    assert.equal(insufficient.api, null);
+    assert.deepEqual(insufficient.playerReviews, []);
+    assert.equal(insufficient.teamReview, null);
+    assert.equal(insufficient.directorPreview, null);
+    assert.equal(upstreamCalls, 1, "a perspective with no events should abstain without calling OpenAI");
+
+    reviewMode = "model-insufficient";
+    const modelInsufficientResponse = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+    assert.equal(modelInsufficientResponse.status, 200, await modelInsufficientResponse.clone().text());
+    const modelInsufficient = await modelInsufficientResponse.json();
+    assert.equal(modelInsufficient.answerType, "insufficient_evidence");
+    assert.equal(modelInsufficient.title, "Not enough evidence to coach this session");
+    assert.equal(
+      modelInsufficient.summary,
+      "The indexed gameplay events do not contain enough reliable evidence for an evidence-grounded coaching review.",
+    );
+    assert.equal(modelInsufficient.sessionRelationship.status, "uncertain");
+    assert.equal(modelInsufficient.sessionRelationship.confidence, 0);
+    assert.equal(
+      modelInsufficient.sessionRelationship.summary,
+      "The index does not contain enough evidence to connect these sources.",
+    );
+    assert.deepEqual(modelInsufficient.sessionRelationship.eventIds, []);
+
+    for (const [mode, expectedPattern] of [
+      ["unknown-event", /unknown event/i],
+      ["unknown-clip", /unknown or duplicate player review clip/i],
+      ["communication-without-transcript", /communication without transcript evidence/i],
+      ["director-wrong-source", /invalid Director source clip/i],
+      ["low-confidence-relationship", /linked sources without sufficient cross-source confidence/i],
+      ["mixed-director", /multi-source Director preview.*not reliably linked/i],
+      ["uncertain-director", /multi-source Director preview.*not reliably linked/i],
+    ]) {
+      reviewMode = mode;
+      const invalidResponse = await dispatch("/api/analyze/review", {
+        method: "POST",
+        headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      assert.equal(invalidResponse.status, 502, mode);
+      const invalid = await invalidResponse.json();
+      assert.equal(invalid.error.code, "OPENAI_INVALID_OUTPUT", mode);
+      assert.match(invalid.error.message, expectedPattern, mode);
+    }
+
+    reviewMode = "valid";
+    const noVoiceResponse = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ ...requestBody, voiceAnalysisEnabled: false }),
+    });
+    assert.equal(noVoiceResponse.status, 502);
+    const noVoice = await noVoiceResponse.json();
+    assert.equal(noVoice.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.match(noVoice.error.message, /communication without transcript evidence/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+    if (previousCoachModel === undefined) delete process.env.OPENAI_COACH_MODEL;
+    else process.env.OPENAI_COACH_MODEL = previousCoachModel;
+  }
+});
+
+test("Ask Coach bounds conversation context and resolves only known scoped citations", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  const fixture = coachingFixture();
+  let coachMode = "coaching";
+  let coachInput = "";
+  globalThis.fetch = async (_url, init) => {
+    const outbound = JSON.parse(init.body);
+    assert.equal(outbound.store, false);
+    if (outbound.text.format.name === "unseen_gameplay_post_review") {
+      return new Response(JSON.stringify({
+        id: "resp-review-for-coach",
+        model: "gpt-5.6-sol-2026-08-01",
+        output_text: JSON.stringify(validRawReview()),
+        usage: { input_tokens: 700, output_tokens: 300 },
+      }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req-review-for-coach" } });
+    }
+    assert.equal(outbound.text.format.name, "unseen_gameplay_coach");
+    coachInput = typeof outbound.input === "string" ? outbound.input : JSON.stringify(outbound.input);
+    const citationEventIds = coachMode === "coaching"
+      ? ["coach-a-segment-001-event-clutch"]
+      : coachMode === "unknown-event"
+        ? ["ghost-event"]
+        : [];
+    return new Response(JSON.stringify({
+      id: `resp-coach-${coachMode}`,
+      model: "gpt-5.6-sol-2026-08-01",
+      output_text: JSON.stringify({
+        answerType: coachMode === "insufficient" ? "insufficient_evidence" : "coaching",
+        answer: coachMode === "insufficient"
+          ? "UNSUPPORTED MODEL COACHING: push every fight because aggression always wins."
+          : "Pause for the teammate's angle confirmation before taking the final duel.",
+        nextAction: coachMode === "insufficient"
+          ? "UNSUPPORTED MODEL ACTION: ignore the index and trust this uncited instruction."
+          : "Use a one-second confirmation cue before committing in three rounds.",
+        citationEventIds,
+      }),
+      usage: { input_tokens: 240, output_tokens: 70 },
+    }), { status: 200, headers: { "content-type": "application/json", "x-request-id": `req-coach-${coachMode}` } });
+  };
+
+  try {
+    const reviewResponse = await dispatch("/api/analyze/review", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clips: fixture.clips,
+        segments: fixture.segments,
+        indexCompleteness: "complete",
+        voiceAnalysisEnabled: true,
+      }),
+    });
+    assert.equal(reviewResponse.status, 200, await reviewResponse.clone().text());
+    const review = await reviewResponse.json();
+    const clientReviewProseSentinel = "CLIENT_REVIEW_PROSE_MUST_NOT_REACH_OPENAI_4FBD";
+    review.title = clientReviewProseSentinel;
+    review.summary = clientReviewProseSentinel;
+    review.playerReviews[0].summary = clientReviewProseSentinel;
+    review.playerReviews[0].primaryPriority = clientReviewProseSentinel;
+    review.playerReviews[0].ratings[0].rationale = clientReviewProseSentinel;
+    const history = Array.from({ length: 8 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: `history-message-${index}`,
+    }));
+    const body = {
+      question: "What should Ace change on the final commitment?",
+      scope: { type: "player", clipId: "coach-a" },
+      history,
+      clips: fixture.clips,
+      segments: fixture.segments,
+      review,
+    };
+
+    const coachResponse = await dispatch("/api/analyze/coach", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(coachResponse.status, 200);
+    assert.equal(coachResponse.headers.get("cache-control"), "no-store");
+    const coaching = await coachResponse.json();
+    assert.equal(coaching.answerType, "coaching");
+    assert.equal(coaching.citations.length, 1);
+    assert.deepEqual(coaching.citations[0], {
+      eventId: "coach-a-segment-001-event-clutch",
+      clipId: "coach-a",
+      startMs: 44_000,
+      endMs: 47_000,
+      title: "Ace commits to the final duel",
+      evidenceFrameIds: ["coach-a-frame-44000"],
+      transcriptSegmentIds: ["coach-a-transcript-43000-1"],
+    });
+    assert.doesNotMatch(coachInput, /history-message-[01]/);
+    for (let index = 2; index < 8; index += 1) assert.match(coachInput, new RegExp(`history-message-${index}`));
+    assert.doesNotMatch(coachInput, new RegExp(clientReviewProseSentinel));
+    assert.match(coachInput, /coach-a-segment-001-event-clutch/);
+    assert.doesNotMatch(coachInput, /data:image|blob:|audioBase64|video\/mp4/i);
+
+    coachMode = "insufficient";
+    const insufficientResponse = await dispatch("/api/analyze/coach", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(insufficientResponse.status, 200);
+    const insufficient = await insufficientResponse.json();
+    assert.equal(insufficient.answerType, "insufficient_evidence");
+    assert.equal(insufficient.answer, "The indexed gameplay events do not contain enough reliable evidence to answer that coaching question.");
+    assert.equal(insufficient.nextAction, "Ask about an observed event or index more footage.");
+    assert.doesNotMatch(`${insufficient.answer} ${insufficient.nextAction}`, /UNSUPPORTED MODEL/);
+    assert.deepEqual(insufficient.citations, []);
+
+    coachMode = "unknown-event";
+    const unknownResponse = await dispatch("/api/analyze/coach", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    assert.equal(unknownResponse.status, 502);
+    const unknown = await unknownResponse.json();
+    assert.equal(unknown.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.match(unknown.error.message, /unknown event/i);
+
+    coachMode = "coaching";
+    const wrongScopeResponse = await dispatch("/api/analyze/coach", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ ...body, scope: { type: "player", clipId: "coach-b" } }),
+    });
+    assert.equal(wrongScopeResponse.status, 502);
+    const wrongScope = await wrongScopeResponse.json();
+    assert.equal(wrongScope.error.code, "OPENAI_INVALID_OUTPUT");
+    assert.match(wrongScope.error.message, /another perspective/i);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
