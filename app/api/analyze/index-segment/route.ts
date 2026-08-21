@@ -22,7 +22,7 @@ export async function POST(request: Request): Promise<Response> {
     return gameplayErrorResponse(503, "AI_NOT_CONFIGURED", "Gameplay search needs the server-side OpenAI API key.");
   }
   try {
-    const result = await indexGameplaySegment(body, gameplayOpenAIConfig(apiKey));
+    const result = await indexGameplaySegment(body, gameplayOpenAIConfig(apiKey, request.signal));
     return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return gameplayRouteError(error, "The gameplay segment could not be indexed.");

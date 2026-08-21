@@ -4,12 +4,12 @@ This module reconstructs a squad session from facts extracted from multiple reco
 
 ## What is implemented
 
-The default long-footage path is implemented in three bounded layers:
+The upload path is implemented in three bounded layers:
 
 - `lib/gameplay-search-client.ts` uses Mediabunny random-access sources to scan
   low-resolution frames every two seconds, retain ten-second context, score
   visual/HUD change and local audio energy, and select at most 24 evidence
-  images per two-minute segment. It also creates consented Opus chunks and
+  images per scheduled window. It also creates consented Opus chunks and
   renders validated highlight plans without loading the entire source into memory.
 - `lib/gameplay-search-openai.ts` indexes a game-agnostic event ontology,
   searches the compact index, transcribes only consented voice, and proposes
@@ -20,6 +20,27 @@ The default long-footage path is implemented in three bounded layers:
   `/transcribe`, `/review`, and `/coach` routes reject unknown IDs, missing
   credentials, invalid consent, and upstream failures rather than substituting
   fixture output.
+
+### Fast mode and Standard mode
+
+The **Fast mode** preference defaults on, but it activates only when all selected
+clips total 2:00 or less. It schedules a 12-second window every 10 seconds, so
+adjacent windows overlap by two seconds. The files are not physically split.
+When combined duration exceeds 2:00—or when the preference is off—the client
+automatically uses **Standard mode** with bounded two-minute windows.
+
+Fast mode can issue up to eight segment API calls concurrently. Evidence
+extraction is gated separately to at most two local media decoders, so network
+parallelism does not remove the browser-side decoding bound. Events repeated in
+overlapping windows are deterministically de-duplicated as results arrive and
+again at completion, before the compact index is consumed by Search, Coach, or
+Highlights.
+
+Voice analysis remains an independent, consent-gated option. When enabled, its
+audio chunks use a separate bounded parallel transcription queue before segment
+indexing. It is not disabled by Fast mode and adds transcription work and
+latency. These bounds improve scheduling for short clips but do not guarantee a
+particular completion time.
 
 Every `GameplayEvent` preserves its source clip/segment, clamped time range,
 readable actors, OCR, confidence, and frame/transcript evidence IDs. Search can
@@ -145,16 +166,18 @@ and then the existing vision default. All gameplay Responses API calls remain
 server-only, set `store: false`, and return request/response provenance for
 inspection.
 
-## Real uploads, official footage, and the interaction simulator
+## Real uploads and the synthetic engineering fixture
 
-The browser upload path accepts two to four real clips up to three minutes each,
-extracts sixteen timestamped frames and optional consented audio, sends those
-samples to the live OpenAI routes, and cross-links only response-backed
-observations. Raw video remains browser-local.
+The browser upload path accepts one to four real clips totaling at most 60
+minutes and 2 GiB. It adaptively selects bounded timestamped frame evidence and
+optional consented audio, sends those samples to the authenticated OpenAI
+routes, and cross-links only response-backed observations. Raw video remains
+browser-local.
 
-The zero-upload showcase embeds three real 30-second scenes from the verified
-Free Fire Esports Official channel. They are different broadcast scenes around
-one real clutch, not synchronized private squad recordings, and the UI says so.
+There is no preloaded broadcast showcase in the product flow. Judges select
+their own permitted clips. The committed files under `public/demo/` are
+fictional engineering fixtures, not Garena gameplay; they exist as a safe local
+fallback for testing the same upload path.
 
 The separate `DEMO_SESSION` is a wholly synthetic, curated artifact used only
 to demonstrate features a public broadcast cannot expose: synchronized private
