@@ -6,6 +6,7 @@ import type {
   ProcessDemoRequest,
   ProcessDemoResponse,
 } from "@/lib/unseen-types";
+import { readTextRequest, RequestBodyTooLargeError } from "@/app/api/_request-body";
 
 export const runtime = "edge";
 
@@ -26,7 +27,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function readJson(request: Request): Promise<unknown> {
-  const body = await request.text();
+  const body = await readTextRequest(request, 64 * 1024);
   if (!body.trim()) return {};
   return JSON.parse(body) as unknown;
 }
@@ -36,7 +37,10 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     rawPayload = await readJson(request);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return errorResponse(413, "PAYLOAD_TOO_LARGE", error.message);
+    }
     return errorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
   }
 

@@ -272,6 +272,7 @@ export interface ApiError {
     code:
       | "INVALID_JSON"
       | "INVALID_REQUEST"
+      | "PAYLOAD_TOO_LARGE"
       | "SESSION_NOT_FOUND"
       | "PARTICIPANT_NOT_FOUND"
       | "QUESTION_NOT_GROUNDED"

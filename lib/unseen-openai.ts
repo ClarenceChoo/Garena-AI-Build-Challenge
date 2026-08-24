@@ -583,12 +583,18 @@ export async function analyzeRealClip(
 
 function validateLinkRequest(value: unknown): LinkClipsRequest {
   if (!record(value) || !Array.isArray(value.clips)) throw new TypeError("clips are required.");
+  if (JSON.stringify(value).length > REAL_ANALYSIS_LIMITS.maximumPromptCharacters) {
+    throw new TypeError("The analyzed clip payload is too large.");
+  }
   if (value.clips.length < REAL_ANALYSIS_LIMITS.minimumClips || value.clips.length > REAL_ANALYSIS_LIMITS.maximumClips) {
     throw new TypeError("Linking requires 2-4 analyzed clips.");
   }
   for (const clip of value.clips) {
     if (!record(clip) || typeof clip.clipId !== "string" || !Array.isArray(clip.observations) || !record(clip.api) || clip.api.real !== true || typeof clip.api.visionResponseId !== "string" || !clip.api.visionResponseId) {
       throw new TypeError("Every clip must be a real, completed AI analysis.");
+    }
+    if (clip.observations.length === 0 || clip.observations.length > REAL_ANALYSIS_LIMITS.maximumObservationsPerClip) {
+      throw new TypeError("Each analyzed clip must contain a bounded observation set.");
     }
   }
   return value as unknown as LinkClipsRequest;
@@ -689,12 +695,18 @@ function validateAskRealSessionRequest(value: unknown): AskRealSessionRequest {
     throw new TypeError("question, viewerClipId, clips, and session are required.");
   }
   const question = value.question.trim();
+  if (JSON.stringify(value).length > REAL_ANALYSIS_LIMITS.maximumPromptCharacters) {
+    throw new TypeError("The reconstructed session payload is too large.");
+  }
   if (question.length < 3 || question.length > 500) throw new TypeError("question must contain 3-500 characters.");
   const clips = validateLinkRequest({ clips: value.clips }).clips;
   if (!clips.some((clip) => clip.clipId === value.viewerClipId)) throw new TypeError("viewerClipId must match an analyzed clip.");
   const session = value.session as unknown as RealSessionAnalysis;
   if (session.api?.real !== true || typeof session.api.responseId !== "string" || !session.api.responseId || !Array.isArray(session.linkedMoments)) {
     throw new TypeError("session must be a completed real AI reconstruction.");
+  }
+  if (session.linkedMoments.length === 0 || session.linkedMoments.length > REAL_ANALYSIS_LIMITS.maximumLinkedMoments) {
+    throw new TypeError("The reconstructed session contains too many linked moments.");
   }
   return { question, viewerClipId: value.viewerClipId, clips, session };
 }

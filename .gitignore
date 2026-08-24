@@ -42,4 +42,10 @@ next-env.d.ts
 /dist/
 /.wrangler/
 /outputs/
+/output/
 /work/
+/tmp/
+/.codex-tmp/
+/.playwright-cli/
+/.worktrees/
+/docs/superpowers/

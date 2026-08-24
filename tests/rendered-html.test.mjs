@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildSessionConsentScope } from "../lib/unseen-consent.js";
@@ -10,6 +10,19 @@ const AUTH_HEADERS = Object.freeze({
   "oai-authenticated-user-email": "judge@example.com",
 });
 process.env.UNSEEN_ALLOWED_EMAILS = "judge@example.com";
+
+function base64UrlJson(value) {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+function signAccessJwt(privateKey, kid, payload) {
+  const signingInput = [
+    base64UrlJson({ alg: "RS256", kid, typ: "JWT" }),
+    base64UrlJson(payload),
+  ].join(".");
+  const signature = sign("RSA-SHA256", Buffer.from(signingInput), privateKey);
+  return `${signingInput}.${signature.toString("base64url")}`;
+}
 
 async function loadWorker() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -442,12 +455,50 @@ test("server-renders the finished UNSEEN product shell", async () => {
   assert.match(await deniedResponse.text(), /Access not approved/);
 
   const previousAuthProvider = process.env.UNSEEN_AUTH_PROVIDER;
+  const previousAccessIssuer = process.env.UNSEEN_CLOUDFLARE_ACCESS_ISSUER;
+  const previousAccessAudience = process.env.UNSEEN_CLOUDFLARE_ACCESS_AUD;
+  const originalFetch = globalThis.fetch;
   process.env.UNSEEN_AUTH_PROVIDER = "cloudflare_access";
+  process.env.UNSEEN_CLOUDFLARE_ACCESS_ISSUER = "https://test.cloudflareaccess.com";
+  process.env.UNSEEN_CLOUDFLARE_ACCESS_AUD = "test-audience";
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const kid = "test-access-key";
+  const jwk = publicKey.export({ format: "jwk" });
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === "https://test.cloudflareaccess.com/cdn-cgi/access/certs") {
+      return Response.json({ keys: [{ ...jwk, kid, alg: "RS256", use: "sig" }] });
+    }
+    return originalFetch(input, init);
+  };
   try {
-    const cloudflareAccessResponse = await dispatch("/", {
+    const spoofedProviderResponse = await dispatch("/", { headers: AUTH_HEADERS });
+    assert.equal(
+      spoofedProviderResponse.status,
+      307,
+      "Cloudflare mode must ignore caller-supplied OpenAI identity headers",
+    );
+
+    const invalidJwtResponse = await dispatch("/", {
       headers: {
         "cf-access-authenticated-user-email": "judge@example.com",
         "cf-access-jwt-assertion": "test-access-jwt",
+      },
+    });
+    assert.equal(invalidJwtResponse.status, 307, "an unsigned Access assertion must fail closed");
+
+    const nowSeconds = Math.floor(Date.now() / 1_000);
+    const accessJwt = signAccessJwt(privateKey, kid, {
+      aud: ["test-audience"],
+      email: "judge@example.com",
+      exp: nowSeconds + 300,
+      iat: nowSeconds,
+      iss: "https://test.cloudflareaccess.com",
+      sub: "cloudflare-user-123",
+    });
+    const cloudflareAccessResponse = await dispatch("/", {
+      headers: {
+        "cf-access-authenticated-user-email": "judge@example.com",
+        "cf-access-jwt-assertion": accessJwt,
       },
     });
     assert.equal(cloudflareAccessResponse.status, 200);
@@ -455,8 +506,13 @@ test("server-renders the finished UNSEEN product shell", async () => {
     assert.match(cloudflareAccessHtml, /judge@example\.com/);
     assert.match(cloudflareAccessHtml, /\/cdn-cgi\/access\/logout/);
   } finally {
+    globalThis.fetch = originalFetch;
     if (previousAuthProvider === undefined) delete process.env.UNSEEN_AUTH_PROVIDER;
     else process.env.UNSEEN_AUTH_PROVIDER = previousAuthProvider;
+    if (previousAccessIssuer === undefined) delete process.env.UNSEEN_CLOUDFLARE_ACCESS_ISSUER;
+    else process.env.UNSEEN_CLOUDFLARE_ACCESS_ISSUER = previousAccessIssuer;
+    if (previousAccessAudience === undefined) delete process.env.UNSEEN_CLOUDFLARE_ACCESS_AUD;
+    else process.env.UNSEEN_CLOUDFLARE_ACCESS_AUD = previousAccessAudience;
   }
 });
 
@@ -506,15 +562,36 @@ test("live analysis fails closed when the server secret is absent", async () => 
     });
     assert.equal(invalidServiceTokenResponse.status, 401);
 
-    const serviceTokenResponse = await dispatch("/api/analyze/clip", {
+    const bodyServiceTokenResponse = await dispatch("/api/analyze/clip", {
       method: "POST",
       headers: {
         "content-type": "application/json",
       },
       body: JSON.stringify({ serviceToken: "test-service-token" }),
     });
+    assert.equal(bodyServiceTokenResponse.status, 401, "service tokens must never be accepted in JSON bodies");
+
+    const serviceTokenResponse = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-unseen-service-token": "test-service-token",
+      },
+      body: "{}",
+    });
     assert.equal(serviceTokenResponse.status, 503);
     assert.equal((await serviceTokenResponse.json()).error.code, "AI_NOT_CONFIGURED");
+
+    const malformedUnauthorizedResponse = await dispatch("/api/analyze/clip", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+    assert.equal(
+      malformedUnauthorizedResponse.status,
+      401,
+      "authentication must run before an untrusted JSON body is parsed",
+    );
 
     const response = await dispatch("/api/analyze/clip", {
       method: "POST",
@@ -627,6 +704,76 @@ test("short gameplay windows use concise Responses settings without changing sta
       assert.deepEqual(outbound.reasoning, { effort: "low" });
       assert.equal(outbound.text.format.strict, true);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("analysis routes reject oversized request metadata before parsing or calling OpenAI", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    throw new Error("OpenAI must not be called for an oversized request");
+  };
+  try {
+    const response = await dispatch("/api/analyze/search", {
+      method: "POST",
+      headers: {
+        ...AUTH_HEADERS,
+        "content-type": "application/json",
+        "content-length": "99999999",
+      },
+      body: "{}",
+    });
+    assert.equal(response.status, 413);
+    assert.equal((await response.json()).error.code, "PAYLOAD_TOO_LARGE");
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test("gameplay indexing rejects transcript collections above the evidence limit", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    throw new Error("OpenAI must not be called for oversized transcript evidence");
+  };
+  try {
+    const response = await dispatch("/api/analyze/index-segment", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({
+        clip: { id: "clip-limit", name: "limit.mp4", label: "Limit", durationMs: 120_000, sizeBytes: 1_000_000 },
+        segment: { id: "segment-limit", startMs: 0, endMs: 120_000 },
+        frames: [
+          { id: "frame-limit-a", timestampMs: 1_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+          { id: "frame-limit-b", timestampMs: 119_000, imageDataUrl: "data:image/jpeg;base64,AA==", width: 2, height: 2, detail: "low", reason: "context" },
+        ],
+        audioFeatures: [],
+        transcriptSegments: Array.from({ length: 241 }, (_, index) => ({
+          id: `transcript-${index}`,
+          clipId: "clip-limit",
+          startMs: index,
+          endMs: index + 1,
+          text: "bounded transcript evidence",
+        })),
+        priorContext: null,
+      }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "INVALID_REQUEST");
+    assert.equal(upstreamCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
@@ -2041,6 +2188,39 @@ test("reasoning endpoint produces aligned, ranked, evidence-linked edit artifact
   assert.ok(payload.editPlan.clips.every((clip) => clip.evidenceIds.length > 0));
   assert.ok(payload.whatYouMissed.some((moment) => moment.revealSourceIds.length > 0));
   assert.equal(payload.audit.at(-1).stage, "ready");
+});
+
+test("anonymous demo questions never spend the server OpenAI key", { concurrency: false }, async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  const originalFetch = globalThis.fetch;
+  process.env.OPENAI_API_KEY = "test-only-key";
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls += 1;
+    return Response.json({});
+  };
+  const question = "What were my teammates doing during my final clutch?";
+  try {
+    const anonymousResponse = await dispatch("/api/demo/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ viewerId: "ace", question }),
+    });
+    assert.equal(anonymousResponse.status, 200);
+    assert.equal(upstreamCalls, 0, "anonymous demo use must remain deterministic");
+
+    const authorizedResponse = await dispatch("/api/demo/ask", {
+      method: "POST",
+      headers: { ...AUTH_HEADERS, "content-type": "application/json" },
+      body: JSON.stringify({ viewerId: "ace", question }),
+    });
+    assert.equal(authorizedResponse.status, 200);
+    assert.equal(upstreamCalls, 1, "authorized users may use the optional AI enhancement");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
 });
 
 test("Ask UNSEEN grounds every PRD benchmark question with playable evidence", async () => {

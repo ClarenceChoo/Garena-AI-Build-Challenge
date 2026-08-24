@@ -1,6 +1,8 @@
 import { analyzeRealClip, UnseenOpenAIError, validateAnalyzeClipRequest } from "@/lib/unseen-openai";
 import type { RealAnalysisApiError } from "@/lib/real-analysis-types";
+import { REAL_ANALYSIS_LIMITS } from "@/lib/real-analysis-types";
 import { unseenApiAuthorizationError } from "@/app/chatgpt-auth";
+import { readJsonRequest, RequestBodyTooLargeError } from "@/app/api/_request-body";
 
 export const runtime = "edge";
 
@@ -12,17 +14,18 @@ function errorResponse(status: number, code: RealAnalysisApiError["error"]["code
 }
 
 export async function POST(request: Request): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return errorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
-  }
-  const authorizationError = await unseenApiAuthorizationError(body);
+  const authorizationError = await unseenApiAuthorizationError();
   if (authorizationError) return authorizationError;
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return errorResponse(503, "AI_NOT_CONFIGURED", "Live AI is not configured on this deployment. Add the OPENAI_API_KEY server secret; UNSEEN will not substitute prewritten results.");
+  }
+  let body: unknown;
+  try {
+    body = await readJsonRequest(request, REAL_ANALYSIS_LIMITS.maximumClipRequestBytes);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return errorResponse(413, "PAYLOAD_TOO_LARGE", error.message);
+    return errorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
   }
   try {
     const payload = validateAnalyzeClipRequest(body);

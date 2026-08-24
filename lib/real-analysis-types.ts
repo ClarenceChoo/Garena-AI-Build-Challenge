@@ -6,6 +6,12 @@ export const REAL_ANALYSIS_LIMITS = Object.freeze({
   framesPerClip: 16,
   maximumFrameDataUrlLength: 900_000,
   maximumAudioBase64Length: 8_500_000,
+  maximumClipRequestBytes: 24 * 1024 * 1024,
+  maximumLinkRequestBytes: 2 * 1024 * 1024,
+  maximumAskRequestBytes: 2 * 1024 * 1024,
+  maximumObservationsPerClip: 64,
+  maximumLinkedMoments: 64,
+  maximumPromptCharacters: 1_000_000,
 });
 
 export interface SampledFrame {
@@ -177,6 +183,7 @@ export interface RealAnalysisApiError {
       | "AI_NOT_CONFIGURED"
       | "UNAUTHORIZED"
       | "FORBIDDEN"
+      | "PAYLOAD_TOO_LARGE"
       | "INVALID_JSON"
       | "INVALID_REQUEST"
       | "OPENAI_ERROR"

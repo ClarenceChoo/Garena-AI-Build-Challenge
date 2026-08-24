@@ -1,5 +1,7 @@
 import { unseenApiAuthorizationError } from "@/app/chatgpt-auth";
+import { readJsonRequest, RequestBodyTooLargeError } from "@/app/api/_request-body";
 import { coachGameplay } from "@/lib/gameplay-search-openai";
+import { GAMEPLAY_SEARCH_LIMITS } from "@/lib/gameplay-search-types";
 import {
   gameplayErrorResponse,
   gameplayOpenAIConfig,
@@ -9,17 +11,18 @@ import {
 export const runtime = "edge";
 
 export async function POST(request: Request): Promise<Response> {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return gameplayErrorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
-  }
-  const authorizationError = await unseenApiAuthorizationError(body);
+  const authorizationError = await unseenApiAuthorizationError();
   if (authorizationError) return authorizationError;
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
     return gameplayErrorResponse(503, "AI_NOT_CONFIGURED", "Ask Coach needs the server-side OpenAI API key.");
+  }
+  let body: unknown;
+  try {
+    body = await readJsonRequest(request, GAMEPLAY_SEARCH_LIMITS.maximumCompactRequestBytes);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return gameplayErrorResponse(413, "PAYLOAD_TOO_LARGE", error.message);
+    return gameplayErrorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
   }
   try {
     const result = await coachGameplay(body, gameplayOpenAIConfig(apiKey, request.signal));

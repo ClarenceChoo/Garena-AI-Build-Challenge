@@ -18,10 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Use Node.js 25
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 25.2.1
           cache: npm
@@ -41,10 +41,10 @@ jobs:
     environment: production
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Use Node.js 25
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 25.2.1
           cache: npm
@@ -65,8 +65,10 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           APP_OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
           APP_ALLOWED_EMAILS: ${{ secrets.UNSEEN_ALLOWED_EMAILS }}
+          APP_ACCESS_ISSUER: ${{ secrets.UNSEEN_CLOUDFLARE_ACCESS_ISSUER }}
+          APP_ACCESS_AUD: ${{ secrets.UNSEEN_CLOUDFLARE_ACCESS_AUD }}
         run: |
-          if [[ -n "$CF_API_TOKEN" && -n "$CF_ACCOUNT_ID" && -n "$APP_OPENAI_KEY" && -n "$APP_ALLOWED_EMAILS" ]]; then
+          if [[ -n "$CF_API_TOKEN" && -n "$CF_ACCOUNT_ID" && -n "$APP_OPENAI_KEY" && -n "$APP_ALLOWED_EMAILS" && -n "$APP_ACCESS_ISSUER" && -n "$APP_ACCESS_AUD" ]]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
@@ -75,17 +77,21 @@ jobs:
 
       - name: Deploy to Cloudflare Workers
         if: steps.deploy_config.outputs.enabled == 'true'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.92.0"
+          wranglerVersion: "4.125.0"
           command: deploy --config dist/server/wrangler.json
           secrets: |
             OPENAI_API_KEY
             UNSEEN_ALLOWED_EMAILS
             UNSEEN_AUTH_PROVIDER
+            UNSEEN_CLOUDFLARE_ACCESS_ISSUER
+            UNSEEN_CLOUDFLARE_ACCESS_AUD
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           UNSEEN_ALLOWED_EMAILS: ${{ secrets.UNSEEN_ALLOWED_EMAILS }}
           UNSEEN_AUTH_PROVIDER: cloudflare_access
+          UNSEEN_CLOUDFLARE_ACCESS_ISSUER: ${{ secrets.UNSEEN_CLOUDFLARE_ACCESS_ISSUER }}
+          UNSEEN_CLOUDFLARE_ACCESS_AUD: ${{ secrets.UNSEEN_CLOUDFLARE_ACCESS_AUD }}

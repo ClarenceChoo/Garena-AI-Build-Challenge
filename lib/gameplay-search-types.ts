@@ -8,10 +8,13 @@ export const GAMEPLAY_SEARCH_LIMITS = Object.freeze({
   scanIntervalMs: 2_000,
   contextIntervalMs: 10_000,
   maximumFramesPerSegment: 24,
+  maximumTranscriptSegmentsPerSegment: 240,
   maximumEventsPerSegment: 12,
   maximumIndexedSegments: 240,
   maximumIndexedEvents: 360,
   maximumSearchHits: 5,
+  maximumIndexRequestBytes: 24 * 1024 * 1024,
+  maximumCompactRequestBytes: 2 * 1024 * 1024,
   maximumAudioChunkBytes: 25 * 1024 * 1024,
   audioChunkDurationMs: 10 * 60_000,
 });
@@ -375,6 +378,7 @@ export type GameplaySearchApiErrorCode =
   | "AI_NOT_CONFIGURED"
   | "UNAUTHORIZED"
   | "FORBIDDEN"
+  | "PAYLOAD_TOO_LARGE"
   | "INVALID_JSON"
   | "INVALID_REQUEST"
   | "OPENAI_ERROR"

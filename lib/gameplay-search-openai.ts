@@ -674,6 +674,12 @@ export function validateIndexGameplaySegmentRequest(value: unknown): IndexGamepl
         peak: clamp(numberOrZero(item.peak), 0, 1),
       }))
     : [];
+  if (
+    Array.isArray(value.transcriptSegments) &&
+    value.transcriptSegments.length > GAMEPLAY_SEARCH_LIMITS.maximumTranscriptSegmentsPerSegment
+  ) {
+    throw new TypeError("Each segment contains too many transcript entries.");
+  }
   const transcriptSegments = Array.isArray(value.transcriptSegments)
     ? value.transcriptSegments.filter(record).map((item) => ({
         id: cleanText(item.id, "", 180),
@@ -844,6 +850,9 @@ function validateSegments(value: unknown, clips: GameplayClipMetadata[]): Gamepl
   const segments = value.map((segment) => {
     if (!record(segment) || !record(segment.api) || segment.api.real !== true || typeof segment.api.responseId !== "string" || !segment.api.responseId || !Array.isArray(segment.events)) {
       throw new TypeError("Every segment must come from a completed AI index response.");
+    }
+    if (segment.events.length > GAMEPLAY_SEARCH_LIMITS.maximumEventsPerSegment) {
+      throw new TypeError("An indexed segment contains too many events.");
     }
     const clipId = cleanText(segment.clipId, "", 120);
     const clip = clipMap.get(clipId);

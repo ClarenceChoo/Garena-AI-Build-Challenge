@@ -1,4 +1,5 @@
 import { unseenApiAuthorizationError } from "@/app/chatgpt-auth";
+import { readFormDataRequest, RequestBodyTooLargeError } from "@/app/api/_request-body";
 import { transcribeGameplayAudio } from "@/lib/gameplay-search-openai";
 import { GAMEPLAY_SEARCH_LIMITS } from "@/lib/gameplay-search-types";
 import {
@@ -18,8 +19,14 @@ export async function POST(request: Request): Promise<Response> {
   }
   let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
+    form = await readFormDataRequest(
+      request,
+      GAMEPLAY_SEARCH_LIMITS.maximumAudioChunkBytes + 1024 * 1024,
+    );
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return gameplayErrorResponse(413, "PAYLOAD_TOO_LARGE", error.message);
+    }
     return gameplayErrorResponse(400, "INVALID_REQUEST", "Audio transcription must use multipart form data.");
   }
   const file = form.get("file");

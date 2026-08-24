@@ -227,6 +227,8 @@ Optional model configuration is already documented in [`.env.example`](.env.exam
 | `OPENAI_SEARCH_TRANSCRIPTION_MODEL` | `whisper-1` |
 | `OPENAI_VISION_MODEL` | `gpt-5.6-sol` |
 | `UNSEEN_ALLOWED_EMAILS` | Comma-separated production tester allowlist; not needed locally |
+| `UNSEEN_CLOUDFLARE_ACCESS_ISSUER` | Required for Cloudflare Access; the HTTPS team issuer |
+| `UNSEEN_CLOUDFLARE_ACCESS_AUD` | Required for Cloudflare Access; the application audience tag |
 
 ### 3. Start and verify
 
@@ -434,7 +436,7 @@ consent/revocation lineage.
 | --- | --- |
 | OpenAI Responses API / `gpt-5.6-sol` | Vision indexing, search, reviews, coaching, Director and highlight planning |
 | OpenAI Audio Transcriptions API / `whisper-1` | Optional consented timestamped speech transcription |
-| `mediabunny` 1.51.0 | Browser media decoding and MP4/WebM reel rendering |
+| `mediabunny` 1.55.2 | Browser media decoding and MP4/WebM reel rendering |
 | Next.js, React, vinext, Vite | Application and Cloudflare-compatible build stack |
 
 Exact direct versions and licenses are in [`package.json`](package.json) and the
@@ -451,3 +453,10 @@ The hosted demo is published with OpenAI Sites. The separate
 to `main` and can deploy to Cloudflare Workers when the required repository
 secrets are present. Production access remains protected by identity plus the
 server-side `UNSEEN_ALLOWED_EMAILS` allowlist.
+
+For Workers deployment, configure `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, `OPENAI_API_KEY`, `UNSEEN_ALLOWED_EMAILS`,
+`UNSEEN_CLOUDFLARE_ACCESS_ISSUER`, and `UNSEEN_CLOUDFLARE_ACCESS_AUD` as GitHub
+Actions secrets. The application verifies the Cloudflare Access JWT signature,
+issuer, audience, expiry, and email before applying the email allowlist. Protect
+or disable the direct `workers.dev` hostname so traffic cannot bypass Access.

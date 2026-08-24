@@ -5,6 +5,8 @@ import {
 } from "@/lib/unseen-fixture";
 import { answerUnseenQuestion } from "@/lib/unseen-ai";
 import { buildSessionConsentScope } from "@/lib/unseen-consent";
+import { unseenApiAuthorizationError } from "@/app/chatgpt-auth";
+import { readTextRequest, RequestBodyTooLargeError } from "@/app/api/_request-body";
 import type {
   ApiError,
   AskCitation,
@@ -41,7 +43,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function readJson(request: Request): Promise<unknown> {
-  const body = await request.text();
+  const body = await readTextRequest(request, 64 * 1024);
   if (!body.trim()) return {};
   return JSON.parse(body) as unknown;
 }
@@ -470,7 +472,10 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     rawPayload = await readJson(request);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return errorResponse(413, "PAYLOAD_TOO_LARGE", error.message);
+    }
     return errorResponse(400, "INVALID_JSON", "Request body must be valid JSON.");
   }
 
@@ -547,7 +552,10 @@ export async function POST(request: Request): Promise<Response> {
       "I could not answer because one or more required evidence grants are unavailable.",
     );
   }
-  const aiAnswer = await tryOptionalAiAnswer(question, viewerId, fallback);
+  const authorizationError = await unseenApiAuthorizationError();
+  const aiAnswer = authorizationError
+    ? null
+    : await tryOptionalAiAnswer(question, viewerId, fallback);
 
   return Response.json(aiAnswer ?? fallback, {
     headers: { "Cache-Control": "no-store" },
