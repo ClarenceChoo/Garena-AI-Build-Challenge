@@ -10,6 +10,20 @@
 ![Local-first](https://img.shields.io/badge/PRIVACY-RAW_VIDEO_STAYS_LOCAL-22d3ee?style=for-the-badge)
 [![Validation](https://github.com/ClarenceChoo/Garena-AI-Build-Challenge/actions/workflows/deploy.yml/badge.svg)](https://github.com/ClarenceChoo/Garena-AI-Build-Challenge/actions/workflows/deploy.yml)
 
+## Final demo
+
+<p align="center">
+  <a href="https://youtu.be/-d_Eql1iRbg">
+    <img src="https://img.youtube.com/vi/-d_Eql1iRbg/maxresdefault.jpg" alt="Watch the UNSEEN final demo on YouTube" width="900">
+  </a>
+</p>
+
+<p align="center">
+  <strong><a href="https://youtu.be/-d_Eql1iRbg">▶ Watch the five-minute final demo</a></strong><br>
+  See UNSEEN turn raw gameplay footage into searchable evidence, highlight reels,
+  and grounded squad insights.
+</p>
+
 <a href="https://unseen-squad-story.iians0n.chatgpt.site/">
   <img src="public/og.png" alt="UNSEEN reconstructs a squad's gameplay story across multiple perspectives" />
 </a>
@@ -19,8 +33,9 @@ One evidence index powers exact-moment retrieval, AI post-game coaching, a
 multi-perspective Director's Cut, and social-ready highlight reels—without
 uploading the raw videos.
 
-> **For Garena judges:** start with [the two-minute demo](#try-the-complete-experience),
-> then use [the judge-ready local setup](#run-locally). The hosted demo is private
+> **For Garena judges:** start with [the five-minute final demo](https://youtu.be/-d_Eql1iRbg),
+> then try [the complete experience](#try-the-complete-experience) or use the
+> [judge-ready local setup](#run-locally). The hosted demo is private
 > and requires an allowlisted ChatGPT email; localhost uses a development-only
 > auth bypass.
 
